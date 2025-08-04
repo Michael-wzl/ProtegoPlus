@@ -7,4 +7,11 @@ For more technical details and experimental results, we invite you to check out 
 **Ziling Wang, Shuya Yang, Jialin Lu, and Ka-Ho Chow,** *"Protego: User-Centric Pose-Invariant Privacy Protection Against Face Recognition-Induced Digital Footprint Exposure."*
 
 ---
+
+| Method              | Original Video \| Protected Video \| Protection Mask |
+|---------------------|------------------------------------------------------|
+| Protego (Ours)      | ![](assets/demo-bc-protego.gif)                      |
+| Chameleon [ECCV'24] | ![](assets/demo-bc-chameleon.gif)                    |
+| OPOM [TPAMI'22]     | ![](assets/demo-bc-opom.gif)                         |
+
 The source code of Protego will be released soon.
