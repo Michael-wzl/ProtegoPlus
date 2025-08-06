@@ -17,8 +17,17 @@ The original video and its protected versions using three different methods are 
 | Chameleon [ECCV'24] | ![](assets/demo-bc-chameleon.gif)                    |
 | OPOM [TPAMI'22]     | ![](assets/demo-bc-opom.gif)                         |
 
-For more technical details and experimental results, we invite you to check out our paper:  
-**Ziling Wang, Shuya Yang, Jialin Lu, and Ka-Ho Chow,** *"Protego: User-Centric Pose-Invariant Privacy Protection Against Face Recognition-Induced Digital Footprint Exposure."*
-
+For more technical details and experimental results, we invite you to check out our paper [[here]](https://arxiv.org/abs/2508.02034):  
+**Ziling Wang, Shuya Yang, Jialin Lu, and Ka-Ho Chow,** *"Protego: User-Centric Pose-Invariant Privacy Protection Against Face Recognition-Induced Digital Footprint Exposure,"*  arXiv preprint arXiv:2508.02034, Aug 4, 2025.
+```
+@article{wang2025protego,
+    title={Protego: User-Centric Pose-Invariant Privacy Protection Against Face Recognition-Induced Digital Footprint Exposure},
+    author={Ziling Wang and Shuya Yang and Jialin Lu and Ka-Ho Chow},
+    year={2025},
+    eprint={2508.02034},
+    archivePrefix={arXiv},
+    primaryClass={cs.CV}
+}
+```
 ---
 The source code of Protego will be released soon.
