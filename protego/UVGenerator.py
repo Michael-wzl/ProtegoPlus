@@ -9,7 +9,7 @@ from pytorch3d.structures import Meshes
 from pytorch3d.io import load_obj
 from pytorch3d.renderer.mesh import rasterize_meshes
 
-from smirk.src.renderer.util import face_vertices, batch_orth_proj
+from ..smirk.src.renderer.util import face_vertices, batch_orth_proj
 
 def keep_vertices_and_update_faces(faces: torch.Tensor, uvfaces: torch.Tensor, vertices_to_keep: List[int]) -> Tuple[torch.Tensor, torch.Tensor]:
     """

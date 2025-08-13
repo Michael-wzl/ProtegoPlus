@@ -19,15 +19,13 @@ import numpy as np
 import tqdm
 from mediapipe.tasks.python.vision.face_landmarker import FaceLandmarker
 
-from smirk.src.smirk_encoder import SmirkEncoder
-from smirk.src.FLAME.FLAME import FLAME
+from ..smirk.src.smirk_encoder import SmirkEncoder
+from ..smirk.src.FLAME.FLAME import FLAME
 from UVGenerator import Renderer
-from utils import img2tensor
+from utils import img2tensor, BASE_PATH
 from setup_user_uvs import run_mediapipe, crop_face, gen_uvs, restore, init_flame, init_renderer, init_smirk, init_mp_lmk_detector
-from mtcnn_pytorch.src.detector import detect_faces
-from mtcnn_pytorch.src.get_nets import PNet, RNet, ONet
-
-BASE_PATH = os.path.dirname(os.path.abspath(__file__))
+from ..mtcnn_pytorch.src.detector import detect_faces
+from ..mtcnn_pytorch.src.get_nets import PNet, RNet, ONet
 
 def coarse_crop(img: Image, 
                 pnet: PNet, 
@@ -273,9 +271,9 @@ if __name__ == "__main__":
         pnet = PNet().eval()
         rnet = RNet().eval()
         onet = ONet().eval()
-        smirk_weight_path = os.path.join(BASE_PATH, 'smirk/pretrained_models/SMIRK_em1.pt')
-        mp_lmk_model_path = os.path.join(BASE_PATH, 'smirk/assets/face_landmarker.task')
         smirk_base_path = os.path.join(BASE_PATH, 'smirk')
+        smirk_weight_path = os.path.join(smirk_base_path, 'pretrained_models/SMIRK_em1.pt')
+        mp_lmk_model_path = os.path.join(smirk_base_path, 'assets/face_landmarker.task')
         smirk_encoder = init_smirk(smirk_weight_path, device)
         flame = init_flame(smirk_base_path, device)
         renderer = init_renderer(smirk_base_path, device)

@@ -18,13 +18,10 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 from mediapipe.tasks.python.vision.face_landmarker import FaceLandmarker
 
-from smirk.src.smirk_encoder import SmirkEncoder
-from smirk.src.FLAME.FLAME import FLAME
+from ..smirk.src.smirk_encoder import SmirkEncoder
+from ..smirk.src.FLAME.FLAME import FLAME
 from UVGenerator import Renderer
-from utils import img2tensor, complete_del
-
-BASE_PATH = os.path.dirname(os.path.abspath(__file__))
-FACE_DB_PATH = os.path.join(BASE_PATH, "face_db")
+from utils import img2tensor, complete_del, BASE_PATH
 
 def init_smirk(smirk_ckpts_path: str, device: torch.device) -> SmirkEncoder:
     """
@@ -231,14 +228,14 @@ def setup_user_uvs(base_dir: str, lmk_detector: FaceLandmarker, smirk_encoder: S
 if __name__ == '__main__':
     with torch.no_grad():
         ######################### Configuration #########################
-        db = os.path.join(FACE_DB_PATH, 'face_scrub')
+        db = os.path.join(BASE_PATH, "face_db", 'face_scrub')
         device = torch.device('cuda:0')
         #################################################################
         # Define paths for the models
-        smirk_weight_path = os.path.join(BASE_PATH, 'smirk/pretrained_models/SMIRK_em1.pt')
-        mp_lmk_model_path = os.path.join(BASE_PATH, 'smirk/assets/face_landmarker.task')
         smirk_base_path = os.path.join(BASE_PATH, 'smirk')
-        
+        smirk_weight_path = os.path.join(smirk_base_path, 'pretrained_models/SMIRK_em1.pt')
+        mp_lmk_model_path = os.path.join(smirk_base_path, 'assets/face_landmarker.task')
+
 
         # Init the models
         smirk_encoder = init_smirk(smirk_weight_path, device)

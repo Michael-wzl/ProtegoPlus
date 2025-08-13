@@ -5,7 +5,9 @@ import yaml
 import matplotlib.pyplot as plt
 import numpy as np
 
-RES_BASE_PATH = os.path.join(os.path.dirname(__file__), "results", "eval")
+from utils import BASE_PATH
+
+RES_BASE_PATH = os.path.join(BASE_PATH, "results", "eval")
 
 def ana_res(eval_name: str, compression: bool):
     name_mapping = {

@@ -12,8 +12,6 @@ from FacialRecognition import *
 from utils import *
 from compression import compress
 
-BASE_PATH = os.path.dirname(os.path.abspath(__file__))
-
 def run1(train: callable, cfgs: OmegaConf) -> None:
     ####################################################################################################################
     # Set the paths

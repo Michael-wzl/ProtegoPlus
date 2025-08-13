@@ -13,8 +13,7 @@ from torch.utils.data import DataLoader
 
 from FacialRecognition import *
 from run import run1, run2
-
-BASE_PATH = os.path.dirname(os.path.abspath(__file__))
+from utils import BASE_PATH
 
 def load_mask(cfgs: OmegaConf, 
               protectee: str) -> Dict[str, Any]:

@@ -18,6 +18,8 @@ from pytorch_msssim import ssim as calc_ssim
 from FacialRecognition import FR
 from compression import compress
 
+BASE_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 def complete_del() -> None:
     gc.collect()
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
