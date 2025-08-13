@@ -30,7 +30,7 @@ For more technical details and experimental results, we invite you to check out 
 }
 ```
 ---
-We provide the code for applying the pose-invariant privacy protection textures (PPTs) to images and videos and for evaluating the performance of the PPTs. Some pretrained PPTs are included for demonstration. The training code of Protego to generate your own PPT will be released later.
+We provide the code for protecting images and videos with the privacy protection textures (PPTs) and the code for evaluating the protection performance. This repository comes with some pretrained PPTs for demonstration. The training code to generate your own PPT will be released later.
 
 To run Protego, you need at least 8 GB of GPU memory and 9 GB of disk space. It is tested on Ubuntu 22.04 with Intel Xeon w5-3415 CPU, 1 NVIDIA RTX 5880 Ada GPU (48 GB memory), and 128 GB RAM. 
 
