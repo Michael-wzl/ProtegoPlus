@@ -26,7 +26,10 @@ The training code of Protego will not be released until a later date. However, w
 Currently without training code, to run the following codes successfully and safely, you need at least 8 GB of GPU memory. The repository will take up around 9 GB of disk space when all assets are downloaded, excluding conda packages. Note that to run the training code, which will be released later, you will need at least 12 GB of GPU memory. The following procedures are tested on Ubuntu 22.04 with Intel Xeon w5-3415 CPU, 1 NVIDIA RTX 5880 Ada GPU (48 GB memory), and 128 GB RAM. 
 
 ## Quick Start from Preprocessed Datasets
-If you simply want to test out the PPTs:
+0. Clone this repository with
+```commandline
+$ git clone https://github.com/HKU-TASR/Protego.git
+```
 1. Run the following commands to quickly set up the environment and download the most essential assets:
 ```commandline
 $ bash setup_quick.sh
