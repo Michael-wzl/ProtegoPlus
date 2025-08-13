@@ -17,13 +17,22 @@ The original video and its protected versions using three different methods are 
 | Chameleon [ECCV'24] | ![](assets/demo-bc-chameleon.gif)                    |
 | OPOM [TPAMI'22]     | ![](assets/demo-bc-opom.gif)                         |
 
-For more technical details and experimental results, we invite you to check out our paper:  
-[**Ziling Wang, Shuya Yang, Jialin Lu, and Ka-Ho Chow,** *"Protego: User-Centric Pose-Invariant Privacy Protection Against Face Recognition-Induced Digital Footprint Exposure."*](https://arxiv.org/abs/2508.02034)
-
+For more technical details and experimental results, we invite you to check out our paper [[here]](https://arxiv.org/abs/2508.02034):  
+**Ziling Wang, Shuya Yang, Jialin Lu, and Ka-Ho Chow,** *"Protego: User-Centric Pose-Invariant Privacy Protection Against Face Recognition-Induced Digital Footprint Exposure,"*  arXiv preprint arXiv:2508.02034, Aug 4, 2025.
+```
+@article{wang2025protego,
+    title={Protego: User-Centric Pose-Invariant Privacy Protection Against Face Recognition-Induced Digital Footprint Exposure},
+    author={Ziling Wang and Shuya Yang and Jialin Lu and Ka-Ho Chow},
+    year={2025},
+    eprint={2508.02034},
+    archivePrefix={arXiv},
+    primaryClass={cs.CV}
+}
+```
 ---
-The training code of Protego will not be released until a later date. However, we have provided some pretrained pose-invariant privacy protection textures (PPTs) and the code for applying the PPTs to images and videos, as well as the code for evaluating the performance of the PPTs. Note that there will be refactorization of the code and the folder structure along with the release of the training code.
+We provide the code for applying the pose-invariant privacy protection textures (PPTs) to images and videos and for evaluating the performance of the PPTs. Some pretrained PPTs are included for demonstration. The training code of Protego to generate your own PPT will be released later.
 
-Currently without training code, to run the following codes successfully and safely, you need at least 8 GB of GPU memory. The repository will take up around 9 GB of disk space when all assets are downloaded, excluding conda packages. Note that to run the training code, which will be released later, you will need at least 12 GB of GPU memory. The following procedures are tested on Ubuntu 22.04 with Intel Xeon w5-3415 CPU, 1 NVIDIA RTX 5880 Ada GPU (48 GB memory), and 128 GB RAM. 
+To run Protego, you need at least 8 GB of GPU memory and 9 GB of disk space. It is tested on Ubuntu 22.04 with Intel Xeon w5-3415 CPU, 1 NVIDIA RTX 5880 Ada GPU (48 GB memory), and 128 GB RAM. 
 
 ## Quick Start from Preprocessed Datasets
 0. Clone this repository with
