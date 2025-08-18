@@ -5,7 +5,7 @@ import yaml
 import matplotlib.pyplot as plt
 import numpy as np
 
-from utils import BASE_PATH
+from .utils import BASE_PATH
 
 RES_BASE_PATH = os.path.join(BASE_PATH, "results", "eval")
 

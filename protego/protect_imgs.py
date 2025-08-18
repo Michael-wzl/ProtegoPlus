@@ -15,13 +15,13 @@ import tqdm
 from mediapipe.tasks.python.vision.face_landmarker import FaceLandmarker
 from PIL import Image
 
-from ..smirk.src.smirk_encoder import SmirkEncoder
-from ..smirk.src.FLAME.FLAME import FLAME
-from ..mtcnn_pytorch.src.get_nets import PNet, RNet, ONet
-from UVGenerator import Renderer
-from protect_vids import coarse_crop, get_uvs
-from setup_user_uvs import init_flame, init_renderer, init_smirk, init_mp_lmk_detector
-from utils import img2tensor, BASE_PATH
+from smirk.src.smirk_encoder import SmirkEncoder
+from smirk.src.FLAME.FLAME import FLAME
+from mtcnn_pytorch.src.get_nets import PNet, RNet, ONet
+from .UVGenerator import Renderer
+from .protect_vids import coarse_crop, get_uvs
+from .setup_user_uvs import init_flame, init_renderer, init_smirk, init_mp_lmk_detector
+from .utils import img2tensor, BASE_PATH
 
 def protect_folder(mask: torch.Tensor, 
                 epsilon: float, 

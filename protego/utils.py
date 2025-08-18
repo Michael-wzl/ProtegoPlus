@@ -15,8 +15,8 @@ from torch.utils.data import DataLoader, TensorDataset
 from torch.utils.data import random_split as train_val_split
 from pytorch_msssim import ssim as calc_ssim
 
-from FacialRecognition import FR
-from compression import compress
+from .FacialRecognition import FR
+from .compression import compress
 
 BASE_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

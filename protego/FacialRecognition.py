@@ -8,12 +8,12 @@ import torch
 from torchvision import transforms
 import gdown
 
-from ..FR_DB.ir50_opom.IR import IR_50
-from ..FR_DB.arcface.arcface import Arcface
-from ..FR_DB.adaface import net
-from ..FR_DB.facenet.inception_resnet_v1 import InceptionResnetV1
-from ..FR_DB.magface import iresnet
-from ..FR_DB.magface.iresnet import IResNet
+from FR_DB.ir50_opom.IR import IR_50
+from FR_DB.arcface.arcface import Arcface
+from FR_DB.adaface import net
+from FR_DB.facenet.inception_resnet_v1 import InceptionResnetV1
+from FR_DB.magface import iresnet
+from FR_DB.magface.iresnet import IResNet
 
 FR_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'FR_DB')
 IR50_OPOM_HOME = os.path.join(FR_DB_PATH, 'ir50_opom')

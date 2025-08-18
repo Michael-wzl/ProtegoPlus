@@ -3,7 +3,7 @@ from typing import Dict, Any
 import torch
 import torch.nn.functional as F
 
-from ..DiffJPEG.DiffJPEG import DiffJPEG
+from DiffJPEG.DiffJPEG import DiffJPEG
 
 def gaussian_filter(imgs:torch.Tensor, kernel_size:int=5, sigma:float=1.0, differentiable: bool = True) -> torch.Tensor:
     """

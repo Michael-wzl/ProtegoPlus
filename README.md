@@ -39,7 +39,7 @@ To run Protego, you need at least 8 GB of GPU memory and 9 GB of disk space. It 
 ```commandline
 $ git clone https://github.com/HKU-TASR/Protego.git
 ```
-1. Run the following commands to quickly set up the environment and download the most essential assets:
+1. Run the following commands in the base environment of conda to quickly set up the environment and download the most essential assets:
 ```commandline
 $ bash setup_quick.sh
 $ conda activate protego

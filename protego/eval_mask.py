@@ -11,9 +11,9 @@ if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = False
 from torch.utils.data import DataLoader
 
-from FacialRecognition import *
-from run import run1, run2
-from utils import BASE_PATH
+from .FacialRecognition import *
+from .run import run1, run2
+from.utils import BASE_PATH
 
 def load_mask(cfgs: OmegaConf, 
               protectee: str) -> Dict[str, Any]:

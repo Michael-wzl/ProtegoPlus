@@ -10,6 +10,8 @@ cd .. && rm -rf tmp
 
 CONDA_BASE=$(conda info --base)
 source "$CONDA_BASE/etc/profile.d/conda.sh"
+conda activate base
+
 ENV_NAME="protego"
 PYTHON_VERSION="3.9" 
 if conda env list | grep -q "^$ENV_NAME\s"; then

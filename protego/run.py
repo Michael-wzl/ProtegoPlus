@@ -8,9 +8,9 @@ import yaml
 from omegaconf import OmegaConf
 import omegaconf
 
-from FacialRecognition import *
-from utils import *
-from compression import compress
+from .FacialRecognition import *
+from .utils import *
+from .compression import compress
 
 def run1(train: callable, cfgs: OmegaConf) -> None:
     ####################################################################################################################

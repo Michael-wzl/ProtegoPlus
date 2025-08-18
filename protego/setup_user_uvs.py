@@ -18,10 +18,10 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 from mediapipe.tasks.python.vision.face_landmarker import FaceLandmarker
 
-from ..smirk.src.smirk_encoder import SmirkEncoder
-from ..smirk.src.FLAME.FLAME import FLAME
-from UVGenerator import Renderer
-from utils import img2tensor, complete_del, BASE_PATH
+from smirk.src.smirk_encoder import SmirkEncoder
+from smirk.src.FLAME.FLAME import FLAME
+from .UVGenerator import Renderer
+from .utils import img2tensor, complete_del, BASE_PATH
 
 def init_smirk(smirk_ckpts_path: str, device: torch.device) -> SmirkEncoder:
     """

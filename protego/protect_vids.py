@@ -19,13 +19,13 @@ import numpy as np
 import tqdm
 from mediapipe.tasks.python.vision.face_landmarker import FaceLandmarker
 
-from ..smirk.src.smirk_encoder import SmirkEncoder
-from ..smirk.src.FLAME.FLAME import FLAME
-from UVGenerator import Renderer
-from utils import img2tensor, BASE_PATH
-from setup_user_uvs import run_mediapipe, crop_face, gen_uvs, restore, init_flame, init_renderer, init_smirk, init_mp_lmk_detector
-from ..mtcnn_pytorch.src.detector import detect_faces
-from ..mtcnn_pytorch.src.get_nets import PNet, RNet, ONet
+from smirk.src.smirk_encoder import SmirkEncoder
+from smirk.src.FLAME.FLAME import FLAME
+from .UVGenerator import Renderer
+from .utils import img2tensor, BASE_PATH
+from .setup_user_uvs import run_mediapipe, crop_face, gen_uvs, restore, init_flame, init_renderer, init_smirk, init_mp_lmk_detector
+from mtcnn_pytorch.src.detector import detect_faces
+from mtcnn_pytorch.src.get_nets import PNet, RNet, ONet
 
 def coarse_crop(img: Image, 
                 pnet: PNet, 
