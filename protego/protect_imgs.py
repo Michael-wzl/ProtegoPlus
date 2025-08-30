@@ -1,8 +1,8 @@
 import os
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1" 
 import datetime
 import warnings
 warnings.filterwarnings("ignore")
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1" 
 
 import torch
 if torch.cuda.is_available():
@@ -13,15 +13,14 @@ import cv2
 import numpy as np
 import tqdm
 from mediapipe.tasks.python.vision.face_landmarker import FaceLandmarker
-from PIL import Image
 
 from smirk.src.smirk_encoder import SmirkEncoder
 from smirk.src.FLAME.FLAME import FLAME
-from mtcnn_pytorch.src.get_nets import PNet, RNet, ONet
+from mtcnn_pytorch.mtcnn import MTCNN
 from .UVGenerator import Renderer
 from .protect_vids import coarse_crop, get_uvs
 from .setup_user_uvs import init_flame, init_renderer, init_smirk, init_mp_lmk_detector
-from .utils import img2tensor, BASE_PATH
+from .utils import BASE_PATH
 
 def protect_folder(mask: torch.Tensor, 
                 epsilon: float, 
@@ -29,9 +28,7 @@ def protect_folder(mask: torch.Tensor,
                 scr_imgs_path: str, 
                 dst_imgs_path: str, 
                 device: torch.device, 
-                pnet: PNet,
-                rnet: RNet, 
-                onet: ONet,
+                detector: MTCNN, 
                 img_sz: int, 
                 lmk_detector: FaceLandmarker, 
                 smirk_encoder: SmirkEncoder, 
@@ -48,9 +45,7 @@ def protect_folder(mask: torch.Tensor,
         scr_imgs_path (str): Path to the source images.
         dst_imgs_path (str): Path to save the protected images.
         device (torch.device): The device to run the computations on.
-        pnet (PNet): The PNet model for face detection.
-        rnet (RNet): The RNet model for face detection.
-        onet (ONet): The ONet model for face detection.
+        detector (MTCNN): The MTCNN detector.
         img_sz (int): The size to which the image will be resized.
         lmk_detector (FaceLandmarker): The MediaPipe face landmark detector.
         smirk_encoder (SmirkEncoder): The SMIRK encoder for generating UVs.
@@ -72,8 +67,9 @@ def protect_folder(mask: torch.Tensor,
         H, W, _ = frame.shape
         # Crop the image
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        pil_frame = Image.fromarray(frame)
-        face, position = coarse_crop(pil_frame, pnet, rnet, onet)
+        frame_pt = torch.tensor(frame.copy(), dtype=torch.float32, device=device).to(device).permute(2, 0, 1)
+        face, position = coarse_crop(frame_pt.clone(), detector)
+        face = face.permute(1, 2, 0).cpu().numpy().astype(np.uint8)
         if face is None or position is None:
             print(f"No face detected in frame {frame_idx}. Skipping...")
             continue
@@ -81,8 +77,9 @@ def protect_folder(mask: torch.Tensor,
         if orig_h == 0 or orig_w == 0:
             print(f"Face crop has zero size in frame {frame_idx}. Skipping...")
             continue
-        if (position[1] < 0 or position[0] < 0 or
-            position[1] + orig_h > H or position[0] + orig_w > W):
+        x0, y0 = position[0], position[1]
+        if (y0 < 0 or x0 < 0 or
+            y0 + orig_h > H or x0 + orig_w > W):
             print(f"Face crop out of bounds in frame {frame_idx}. Skipping...")
             continue
         img_np = cv2.resize(face, (img_sz, img_sz), interpolation=cv2.INTER_LANCZOS4 if orig_h > img_sz else cv2.INTER_AREA)
@@ -95,11 +92,15 @@ def protect_folder(mask: torch.Tensor,
         if use_bin_mask:
             perturbation *= bin_mask
         perturbation = torch.clamp(F.interpolate(perturbation, size=(orig_h, orig_w), mode='bilinear', align_corners=True), -epsilon, epsilon).squeeze(0)
+        #_perturbation = (perturbation - perturbation.min()) / (perturbation.max() - perturbation.min())
+        #cv2.imwrite(f"frame_{frame_idx}_perturbation.png", cv2.cvtColor(np.ascontiguousarray(_perturbation.mul(255.).permute(1, 2, 0).cpu().numpy().astype(np.uint8)), cv2.COLOR_RGB2BGR))
         # Apply the perturbations and create the protected frames
-        protected_frame_pt = img2tensor(frame.copy()).to(device).squeeze(0) 
-        face_area = protected_frame_pt[:, position[1] : position[1] + orig_h, position[0] : position[0] + orig_w].clone()
+        protected_frame_pt = frame_pt / 255.
+        face_area = protected_frame_pt[:, y0 : y0 + orig_h, x0 : x0 + orig_w].clone().contiguous()
+        #cv2.imwrite(f"frame_{frame_idx}_face_area_unperturbed.png", cv2.cvtColor(np.ascontiguousarray(face_area.mul(255.).permute(1, 2, 0).cpu().numpy().astype(np.uint8)), cv2.COLOR_RGB2BGR))
         face_area = torch.clamp(face_area + perturbation, 0, 1)
-        protected_frame_pt[:, position[1] : position[1] + orig_h, position[0] : position[0] + orig_w] = face_area
+        #cv2.imwrite(f"frame_{frame_idx}_face_area.png", cv2.cvtColor(np.ascontiguousarray(face_area.mul(255.).permute(1, 2, 0).cpu().numpy().astype(np.uint8)), cv2.COLOR_RGB2BGR))
+        protected_frame_pt[:, y0 : y0 + orig_h, x0 : x0 + orig_w] = face_area
         protected_frame = protected_frame_pt.mul(255.).permute(1, 2, 0).cpu().numpy().astype(np.uint8)
             
         end_time = datetime.datetime.now()
@@ -127,9 +128,9 @@ if __name__ == "__main__":
         img_sz = 224
         epsilon /= 255. 
         mask = torch.tensor(np.load(mask_src_path), dtype=torch.float32, device=device).to(device)[[0]]
-        pnet = PNet().eval()
-        rnet = RNet().eval()
-        onet = ONet().eval()
+        detector = MTCNN(device=device, weight_paths={'pnet': os.path.join(BASE_PATH, 'mtcnn_pytorch', 'weights', 'pnet.npy'), 
+                                                      'rnet': os.path.join(BASE_PATH, 'mtcnn_pytorch', 'weights', 'rnet.npy'), 
+                                                      'onet': os.path.join(BASE_PATH, 'mtcnn_pytorch', 'weights', 'onet.npy')})
         smirk_weight_path = os.path.join(BASE_PATH, 'smirk/pretrained_models/SMIRK_em1.pt')
         mp_lmk_model_path = os.path.join(BASE_PATH, 'smirk/assets/face_landmarker.task')
         smirk_base_path = os.path.join(BASE_PATH, 'smirk')
@@ -144,9 +145,7 @@ if __name__ == "__main__":
                         scr_imgs_path=scr_imgs_path,
                         dst_imgs_path=dst_imgs_path,
                         device=device,
-                        pnet=pnet,
-                        rnet=rnet,
-                        onet=onet,
+                        detector=detector,
                         img_sz=img_sz,
                         lmk_detector=lmk_detector,
                         smirk_encoder=smirk_encoder,

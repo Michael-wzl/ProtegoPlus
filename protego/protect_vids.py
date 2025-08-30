@@ -1,7 +1,5 @@
 import os
-import gc
-import sys
-from typing import Tuple, List
+from typing import Tuple
 import datetime
 import warnings
 warnings.filterwarnings("ignore")
@@ -13,7 +11,6 @@ if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = False
 import torch.nn.functional as F
 import cv2
-from PIL import Image
 from skimage.transform import warp
 import numpy as np
 import tqdm
@@ -21,39 +18,34 @@ from mediapipe.tasks.python.vision.face_landmarker import FaceLandmarker
 
 from smirk.src.smirk_encoder import SmirkEncoder
 from smirk.src.FLAME.FLAME import FLAME
+from mtcnn_pytorch.mtcnn import MTCNN
 from .UVGenerator import Renderer
 from .utils import img2tensor, BASE_PATH
 from .setup_user_uvs import run_mediapipe, crop_face, gen_uvs, restore, init_flame, init_renderer, init_smirk, init_mp_lmk_detector
-from mtcnn_pytorch.src.detector import detect_faces
-from mtcnn_pytorch.src.get_nets import PNet, RNet, ONet
 
-def coarse_crop(img: Image, 
-                pnet: PNet, 
-                rnet: RNet,
-                onet: ONet, 
+
+def coarse_crop(img: torch.Tensor, 
+                detector: MTCNN, 
                 conf_thresh: float = 0.8, 
                 min_h: int = 20, 
-                min_w: int = 20) -> Tuple[np.ndarray, Tuple[int, int, int, int]]:
+                min_w: int = 20) -> Tuple[torch.Tensor, Tuple[int, int, int, int]]:
     """
     Crop the face from the image using MTCNN.
 
     Args:
-        img (Image): The input image.
-        pnet (PNet): The PNet model for face detection.
-        rnet (RNet): The RNet model for face detection.
-        onet (ONet): The ONet model for face detection.
+        img (torch.Tensor): FloatTensor. Range [0, 255], RGB, [3, H, W]
         conf_thresh (float): Confidence threshold for face detection.
         min_h (int): Minimum height of the detected face.
         min_w (int): Minimum width of the detected face.
 
     Returns:
-        Tuple[np.ndarray, Tuple[int, int, int, int]]: The cropped face and its position in the original image.
+        Tuple[torch.Tensor, Tuple[int, int, int, int]]: The cropped face (Range [0, 255], RGB, [3, H, W]) and its position in the original image.
     """
-    bboxs, _ = detect_faces(img, pnet=pnet, rnet=rnet, onet=onet)
+    bboxs, _ = detector(img.float())
     if len(bboxs) == 0:
         return None, None
-    img_np = np.array(img)
-    height, width = img_np.shape[:2]
+    bboxs = bboxs[0].cpu().numpy()
+    height, width = img.shape[1:]
     cropped_face = None
     position = None
     largest_area = 0
@@ -93,20 +85,14 @@ def coarse_crop(img: Image,
         src_x2 = min(width, square_x2)
         src_y2 = min(height, square_y2)
 
-        if len(img_np.shape) == 3:
-            square_face = np.full((square_size, square_size, 3), 128, dtype=img_np.dtype)
-        else:
-            square_face = np.full((square_size, square_size), 128, dtype=img_np.dtype)
+        square_face = torch.full((3, square_size, square_size), 128, dtype=img.dtype, device=img.device)
 
         dst_x1 = pad_left
         dst_y1 = pad_top
         dst_x2 = dst_x1 + (src_x2 - src_x1)
         dst_y2 = dst_y1 + (src_y2 - src_y1)
 
-        if len(img_np.shape) == 3:
-            square_face[dst_y1:dst_y2, dst_x1:dst_x2, :] = img_np[src_y1:src_y2, src_x1:src_x2, :]
-        else:
-            square_face[dst_y1:dst_y2, dst_x1:dst_x2] = img_np[src_y1:src_y2, src_x1:src_x2]
+        square_face[:, dst_y1:dst_y2, dst_x1:dst_x2] = img[:, src_y1:src_y2, src_x1:src_x2]
 
         cropped_face = square_face
         position = (square_x1, square_y1, square_x2, square_y2)
@@ -149,9 +135,7 @@ def gen_vids(mask: torch.Tensor,
             scr_vid_path: str, 
             dst_vid_path: str, 
             device: torch.device, 
-            pnet: PNet,
-            rnet: RNet, 
-            onet: ONet,
+            detector: MTCNN, 
             img_sz: int, 
             lmk_detector: FaceLandmarker, 
             smirk_encoder: SmirkEncoder, 
@@ -193,8 +177,9 @@ def gen_vids(mask: torch.Tensor,
             break
         # Crop the image
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        pil_frame = Image.fromarray(frame)
-        face, position = coarse_crop(pil_frame, pnet, rnet, onet)
+        frame_pt = torch.tensor(frame.copy(), dtype=torch.float32, device=device).to(device).permute(2, 0, 1)
+        face, position = coarse_crop(frame_pt.clone(), detector)
+        face = face.permute(1, 2, 0).cpu().numpy().astype(np.uint8) # face: [H, W, 3]
         if face is None or position is None:
             print(f"No face detected in frame {frame_idx}. Skipping...")
             continue
@@ -202,8 +187,9 @@ def gen_vids(mask: torch.Tensor,
         if orig_h == 0 or orig_w == 0:
             print(f"Face crop has zero size in frame {frame_idx}. Skipping...")
             continue
-        if (position[1] < 0 or position[0] < 0 or
-            position[1] + orig_h > H or position[0] + orig_w > W):
+        x0, y0 = position[0], position[1]
+        if (y0 < 0 or x0 < 0 or
+            y0 + orig_h > H or x0 + orig_w > W):
             print(f"Face crop out of bounds in frame {frame_idx}. Skipping...")
             continue
         start_time = datetime.datetime.now()
@@ -218,16 +204,16 @@ def gen_vids(mask: torch.Tensor,
             perturbation *= bin_mask
         perturbation = torch.clamp(F.interpolate(perturbation, size=(orig_h, orig_w), mode='bilinear', align_corners=True), -epsilon, epsilon).squeeze(0)
         # Apply the perturbations and create the protected frames
-        protected_frame_pt = img2tensor(frame.copy()).to(device).squeeze(0) 
-        face_area = protected_frame_pt[:, position[1] : position[1] + orig_h, position[0] : position[0] + orig_w].clone()
+        protected_frame_pt = frame_pt / 255.
+        face_area = protected_frame_pt[:, y0 : y0 + orig_h, x0 : x0 + orig_w].clone().contiguous()
         face_area = torch.clamp(face_area + perturbation, 0, 1)
-        protected_frame_pt[:, position[1] : position[1] + orig_h, position[0] : position[0] + orig_w] = face_area
+        protected_frame_pt[:, y0 : y0 + orig_h, x0 : x0 + orig_w] = face_area
         protected_frame = protected_frame_pt.mul(255.).permute(1, 2, 0).cpu().numpy().astype(np.uint8)
         # Create the final perturbation frames
         if compare_mode:
             perturbation = ((perturbation - perturbation.min()) / (perturbation.max() - perturbation.min())).mul(255.).permute(1, 2, 0).cpu().numpy().astype(np.uint8)
             perturbation_frame = np.full_like(protected_frame, 128)  # shape: [H, W, 3]
-            perturbation_frame[position[1]:orig_h + position[1], position[0]:orig_w + position[0], :] = perturbation
+            perturbation_frame[y0:orig_h + y0, x0:orig_w + x0, :] = perturbation
             
         end_time = datetime.datetime.now()
         frame_cnt += 1
@@ -238,9 +224,9 @@ def gen_vids(mask: torch.Tensor,
             final_frame[:, :W, :] = frame
             final_frame[:, W:2*W, :] = protected_frame
             final_frame[:, 2*W:3*W, :] = perturbation_frame
-            final_frame = cv2.putText(final_frame, f"Original Frame", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
-            final_frame = cv2.putText(final_frame, f"Protected Frame ({scr_vid_path})", (W + 10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
-            final_frame = cv2.putText(final_frame, f"Perturbation ({scr_vid_path})", (2 * W + 10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+            final_frame = cv2.putText(final_frame, f"Original Frame", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 2)
+            final_frame = cv2.putText(final_frame, f"Protected Frame", (W + 10, 30), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 2)
+            final_frame = cv2.putText(final_frame, f"Perturbation", (2 * W + 10, 30), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 2)
         else:
             final_frame = protected_frame
         final_frame = cv2.cvtColor(final_frame, cv2.COLOR_RGB2BGR)
@@ -268,9 +254,9 @@ if __name__ == "__main__":
         img_sz = 224
         epsilon /= 255. 
         mask = torch.tensor(np.load(mask_src_path), dtype=torch.float32, device=device).to(device)[[0]]
-        pnet = PNet().eval()
-        rnet = RNet().eval()
-        onet = ONet().eval()
+        detector = MTCNN(device=device, weight_paths={'pnet': os.path.join(BASE_PATH, 'mtcnn_pytorch', 'weights', 'pnet.npy'), 
+                                                      'rnet': os.path.join(BASE_PATH, 'mtcnn_pytorch', 'weights', 'rnet.npy'), 
+                                                      'onet': os.path.join(BASE_PATH, 'mtcnn_pytorch', 'weights', 'onet.npy')})
         smirk_base_path = os.path.join(BASE_PATH, 'smirk')
         smirk_weight_path = os.path.join(smirk_base_path, 'pretrained_models/SMIRK_em1.pt')
         mp_lmk_model_path = os.path.join(smirk_base_path, 'assets/face_landmarker.task')
@@ -286,9 +272,7 @@ if __name__ == "__main__":
                 scr_vid_path=scr_vid_path,
                 dst_vid_path=dst_vid_path,
                 device=device,
-                pnet=pnet,
-                rnet=rnet, 
-                onet=onet,
+                detector=detector,
                 img_sz=img_sz,
                 lmk_detector=lmk_detector,
                 smirk_encoder=smirk_encoder,

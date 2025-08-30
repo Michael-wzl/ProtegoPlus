@@ -193,8 +193,13 @@ class Renderer(nn.Module):
                 fixed_vertices[..., 1] = fixed_vertices[..., 1]*h/w
             else:
                 fixed_vertices[..., 0] = fixed_vertices[..., 0]*w/h
-            
-        meshes_screen = Meshes(verts=fixed_vertices.float(), faces=faces.to(fixed_vertices.device).long())
+
+        # MPS does not support the cumsum operation on int64 data, which is a must in the rasterize_meshes function. Therefore, we must move it to cpu.
+        orig_device = fixed_vertices.device.type
+        if orig_device == 'mps':
+            meshes_screen = Meshes(verts=fixed_vertices.float().cpu(), faces=faces.long().cpu())
+        else:
+            meshes_screen = Meshes(verts=fixed_vertices.float(), faces=faces.to(fixed_vertices.device).long())
         pix_to_face, zbuf, bary_coords, dists = rasterize_meshes(
             meshes_screen,
             image_size=image_size,
@@ -204,6 +209,9 @@ class Renderer(nn.Module):
             max_faces_per_bin=None,
             perspective_correct=False,
         )
+        if orig_device == 'mps':
+            pix_to_face = pix_to_face.to(torch.device(orig_device))
+            bary_coords = bary_coords.to(torch.device(orig_device))
         vismask = (pix_to_face > -1).float()
         D = attributes.shape[-1]
         attributes = attributes.clone(); attributes = attributes.view(attributes.shape[0]*attributes.shape[1], 3, attributes.shape[-1])

@@ -32,18 +32,26 @@ For more technical details and experimental results, we invite you to check out 
 ---
 We provide the code for protecting images and videos with the privacy protection textures (PPTs) and the code for evaluating the protection performance. This repository comes with some pretrained PPTs for demonstration. The training code to generate your own PPT will be released later.
 
-To run Protego, you need at least 8 GB of GPU memory and 9 GB of disk space. It is tested on Ubuntu 22.04 with Intel Xeon w5-3415 CPU, 1 NVIDIA RTX 5880 Ada GPU (48 GB memory), and 128 GB RAM. 
+The current version of Protego is not optimized for performance, so there may be OOM issues when running on low-memory devices. For reference, to run Protego, you need around 8 GB of (GPU) memory. The code is tested on: 
+- Ubuntu 22.04; Intel Xeon w5-3415 CPU; 1 NVIDIA RTX 5880 Ada GPU (48 GB memory); 128 GB RAM
+- MacOS 15.6.1; Apple M4 Pro; 24 GB Memory
+
+Although we do support MPS, the performance and stability are poorer, which is mostly because of PyTorch and PyTorch3D's immature support of MPS. Therefore, we recommend either CPU-only or CUDA-enabled environments for optimal stability or performance. 
+
+For Windows users, you may need to figure out the setup process yourself, especially the PyTorch3D installation part. We will add support for Windows afterwards if more people are interested in the project and would like to try out for themselves. 
 
 ## Quick Start from Preprocessed Datasets
 0. Clone this repository with
 ```commandline
-$ git clone https://github.com/HKU-TASR/Protego.git
+$ git clone --depth 1 https://github.com/HKU-TASR/Protego.git
 ```
 1. Run the following commands in the base environment of conda to quickly set up the environment and download the most essential assets:
 ```commandline
 $ bash setup_quick.sh
 $ conda activate protego
 ```
+Note that `setup_quick.sh` will automatically run differently according to platform.
+
 2. Launch the notebook `protego.ipynb` in the conda environment and try out the PPTs.
 - If you are using VS Code, you can directly choose the kernel to use. 
 - Otherwise, try the following command and open `protego.ipynb` (untested)
@@ -52,3 +60,14 @@ $ conda activate protego
 $ conda install jupyter -y
 $ jupyter notebook
 ```
+
+## Acknowledgements
+The codes and weights in the following folders are adapted from existing open-source projects:
+- [smirk/](https://github.com/georgeretsi/smirk)
+- [mtcnn_pytorch/](https://github.com/Michael-wzl/mtcnn_pytorch)
+- [DiffJPEG/](https://github.com/mlomnitz/DiffJPEG)
+- [FR_DB/adaface/](https://github.com/mk-minchul/AdaFace)
+- [FR_DB/arcface/](https://github.com/ronghuaiyang/arcface-pytorch)
+- [FR_DB/facenet/](https://github.com/timesler/facenet-pytorch)
+- [FR_DB/ir50_opom/](https://github.com/zhongyy/OPOM)
+- [FR_DB/magface/](https://github.com/IrvingMeng/MagFace)

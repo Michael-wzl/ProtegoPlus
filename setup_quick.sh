@@ -1,12 +1,45 @@
 #!/bin/bash
+OS_TYPE=$(uname)
+if [[ "$OS_TYPE" == "Darwin" ]]; then
+    echo "Running on macOS"
+    MACOS_VER=$(sw_vers -productVersion | awk -F '.' '{print $1"."$2}')
+elif [[ "$OS_TYPE" == "Linux" ]]; then
+    echo "Running on Linux"
+else
+    echo "Unsupported OS: $OS_TYPE"
+    exit 1
+fi
 
-echo "Downloading SMIRK assets and MTCNN weights..."
+check_cuda_support() {
+    if command -v lspci &> /dev/null; then
+        if lspci | grep -i nvidia &> /dev/null; then
+            echo "NVIDIA GPU detected. CUDA might be supported."
+            return 0
+        else
+            echo "No NVIDIA GPU detected. CUDA is not supported."
+            return 1
+        fi
+    else
+        echo "lspci command not found. Unable to check for NVIDIA GPU."
+        return 1
+    fi
+}
+CUDA_SUPPORT=0
+if [[ "$OS_TYPE" == "Linux" ]]; then
+    check_cuda_support
+    CUDA_SUPPORT=$?
+    if [[ $CUDA_SUPPORT -ne 0 ]]; then
+        echo "CUDA is not supported on this machine. Exiting." 
+        exit 1
+    fi
+fi
+
+echo "Downloading SMIRK assets..."
 mkdir tmp && cd tmp
 git clone https://github.com/georgeretsi/smirk
 mv smirk/assets ../smirk/
-git clone https://github.com/TropComplique/mtcnn-pytorch
-mv mtcnn-pytorch/src/weights/*.npy ../mtcnn_pytorch/src/weights
-cd .. && rm -rf tmp
+cd ..
+rm -rf tmp
 
 CONDA_BASE=$(conda info --base)
 source "$CONDA_BASE/etc/profile.d/conda.sh"
@@ -29,11 +62,23 @@ check_target_env() {
     fi
 }
 check_target_env
-echo "Installing packages..."
-pip install -r requirements.txt
+echo "Installing packages and downloading SMIRK weights..."
+if [[ "$OS_TYPE" == "Linux" ]]; then
+    pip install -r requirements.txt
+elif [[ "$OS_TYPE" == "Darwin" ]]; then
+    pip install -r requirements_mac.txt
+fi
 conda install zip -y
 conda install unzip -y
-pip install --no-index --no-cache-dir pytorch3d -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py39_cu117_pyt201/download.html
+if [[ "$OS_TYPE" == "Linux" ]]; then
+    pip install --no-index --no-cache-dir pytorch3d -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py39_cu117_pyt201/download.html
+elif [[ "$OS_TYPE" == "Darwin" ]]; then
+    git clone https://github.com/facebookresearch/pytorch3d.git
+    cd pytorch3d
+    MACOSX_DEPLOYMENT_TARGET=$MACOS_VER CC=clang CXX=clang++ pip install . 
+    cd ..
+    rm -rf pytorch3d
+fi
 cd smirk
 bash quick_install.sh
 pip install pytorch_msssim==1.0.0
@@ -44,28 +89,35 @@ conda install ipykernel -y
 cd ..
 echo "All packages installed successfully!"
 
+echo "Downloading MTCNN weights..."
+cd mtcnn_pytorch/weights
+gdown --fuzzy "https://drive.google.com/file/d/1uJopXpkHHzzImZ-4LVWrRHHMbUECi5Fb/view?usp=share_link"
+unzip mtcnn_pytorch_weights.zip
+rm -f mtcnn_pytorch_weights.zip
+cd ../..
+
 echo "Downloading IR50-AdaFace-CASIA weights..."
 cd FR_DB/adaface/pretrained
-gdown --fuzzy https://drive.google.com/file/d/1g1qdg7_HSzkue7_VrW64fnWuHl0YL2C2/view?usp=sharing
+gdown --fuzzy "https://drive.google.com/file/d/1g1qdg7_HSzkue7_VrW64fnWuHl0YL2C2/view?usp=sharing"
 cd ../../..
 
 echo "Downloading Processed FaceScrub Dataset..."
 cd face_db
-gdown --fuzzy https://drive.google.com/file/d/1H-exPEZXCKb8hP7SBcYSLeqWxhtrrbma/view?usp=sharing
+gdown --fuzzy "https://drive.google.com/file/d/1H-exPEZXCKb8hP7SBcYSLeqWxhtrrbma/view?usp=sharing"
 unzip face_scrub_preprocessed.zip
-rm face_scrub_preprocessed.zip
+rm -f face_scrub_preprocessed.zip
 
 echo "Downloading Demo Video and Images..."
-gdown --fuzzy https://drive.google.com/file/d/14U8zeWsgqrduJ5wr0l5Iv24-Vd1fZqZs/view?usp=sharing
+gdown --fuzzy "https://drive.google.com/file/d/14U8zeWsgqrduJ5wr0l5Iv24-Vd1fZqZs/view?usp=sharing"
 unzip demo_vids_bradley_cooper.zip
 rm -f demo_vids_bradley_cooper.zip
-gdown --fuzzy https://drive.google.com/file/d/1SmnKTaPw82hjWcgf-td921licl-BBowD/view?usp=sharing
+gdown --fuzzy "https://drive.google.com/file/d/1SmnKTaPw82hjWcgf-td921licl-BBowD/view?usp=sharing"
 unzip demo_imgs_bradley_cooper.zip
 rm -f demo_imgs_bradley_cooper.zip
 cd ..
 
 echo "Downloading Pretrained Pose-invariant PPTs..."
-gdown --fuzzy https://drive.google.com/file/d/1Ckh9To_EoUhcwooJ6con3DGtkVyVdGSu/view?usp=sharing
+gdown --fuzzy "https://drive.google.com/file/d/1Ckh9To_EoUhcwooJ6con3DGtkVyVdGSu/view?usp=sharing"
 unzip pretrained_ppts_protego.zip
 rm -f pretrained_ppts_protego.zip
 cd ..
