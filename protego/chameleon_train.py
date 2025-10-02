@@ -70,6 +70,9 @@ def train_chameleon_mask(cfgs: OmegaConf,
             else:
                 protected_faces = torch.clamp(orig_faces + perturbations, 0, 1)
 
+            percep_loss = calc_ssim(protected_faces, orig_faces, data_range=1., size_average=True)
+            percep_term = percep_loss_weight * torch.max(min_ssim - percep_loss, torch.tensor(0.).to(device))
+
             ensemble_losses, _feature_loss, _percep_loss = [], 0, 0 
             for fr in frs:
                 protected_features = fr(protected_faces)
@@ -77,7 +80,7 @@ def train_chameleon_mask(cfgs: OmegaConf,
                 feature_loss = F.cosine_similarity(orig_features, protected_features).mean()
                 percep_loss = calc_ssim(protected_faces, orig_faces, data_range=1., size_average=True)
 
-                ensemble_losses.append(feature_loss + percep_loss_weight * torch.max(min_ssim - percep_loss, torch.tensor(0.).to(device)))
+                ensemble_losses.append(feature_loss + percep_term)
                 _feature_loss += feature_loss.clone().detach()
                 _percep_loss += percep_loss.clone().detach()
                 

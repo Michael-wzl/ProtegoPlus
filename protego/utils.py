@@ -100,8 +100,18 @@ def crop_face(img: torch.Tensor,
 
 def complete_del() -> None:
     gc.collect()
-    torch.cuda.empty_cache() if torch.cuda.is_available() else None
-    torch.backends.mps.empty_cache() if torch.backends.mps.is_available() else None
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    if hasattr(torch, "mps"):
+        is_available = getattr(torch.mps, "is_available", None)
+        empty_cache = getattr(torch.mps, "empty_cache", None)
+        if callable(is_available) and callable(empty_cache):
+            try:
+                if is_available():
+                    empty_cache()
+            except AttributeError:
+                # Older PyTorch builds may expose torch.backends.mps without torch.mps helpers
+                pass
 
 def img2tensor(img: np.ndarray, drange: int = 1, device: torch.device = torch.device('cpu')) -> torch.Tensor:
     """
