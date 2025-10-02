@@ -14,8 +14,9 @@ from FR_DB.adaface import net
 from FR_DB.facenet.inception_resnet_v1 import InceptionResnetV1
 from FR_DB.magface import iresnet
 from FR_DB.magface.iresnet import IResNet
+from . import BASE_PATH
 
-FR_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'FR_DB')
+FR_DB_PATH = os.path.join(BASE_PATH, 'FR_DB')
 IR50_OPOM_HOME = os.path.join(FR_DB_PATH, 'ir50_opom')
 ADAFACE_HOME = os.path.join(FR_DB_PATH, 'adaface')
 ARCFACE_HOME = os.path.join(FR_DB_PATH, 'arcface')

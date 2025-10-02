@@ -13,28 +13,16 @@ class MTCNN(object):
     @torch.no_grad()
     def __init__(
         self,
-        conf_threshes: List[float] = [0.6, 0.7, 0.8],
-        nms_threshes: List[float] = [0.7, 0.7, 0.7],
         weight_paths: Dict[str, str] = {'pnet': "weights/pnet.npy", 'rnet': "weights/rnet.npy", 'onet': "weights/onet.npy"},
         device: torch.device = None,
-        min_face_size: float = 20.0,
-        scale_factor: float = math.sqrt(0.5),
     ) -> None:
         """
         Init a MTCNN model.
 
         Args:
-            conf_threshes: List of confidence thresholds for PNet, RNet, and ONet.
-            nms_threshes: List of NMS thresholds for PNet, RNet, and ONet.
             weight_paths: Dictionary mapping network names to their weight file paths.
             device: Device to run the model on
-            min_face_size: Minimum size of faces to detect.
-            scale_factor: Scale factor for image pyramid.
         """
-        self.conf_threshes = conf_threshes
-        self.nms_threshes = nms_threshes
-        self.min_face_size = float(min_face_size)
-        self.scale_factor = float(scale_factor)
         self.device = device or torch.device('cpu')
 
         self.pnet = PNet(weight_path=weight_paths['pnet']).to(self.device).eval()
@@ -51,7 +39,9 @@ class MTCNN(object):
         return self.detect(imgs)
 
     @torch.inference_mode()
-    def detect(self, imgs: Union[torch.Tensor, List[torch.Tensor]], verbose: bool = False, return_zero: bool = True, return_type: str = 'any') -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[List[torch.Tensor], List[torch.Tensor]], Tuple[None, None]]:
+    def detect(self, imgs: Union[torch.Tensor, List[torch.Tensor]], verbose: bool = False, return_zero: bool = True, return_type: str = 'any', 
+                min_face_size: float = 20.0, scale_factor: float = math.sqrt(0.5), conf_threshes: List[float] = [0.6, 0.7, 0.8], nms_threshes: List[float] = [0.7, 0.7, 0.7]
+        ) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[List[torch.Tensor], List[torch.Tensor]], Tuple[None, None]]:
         """
         Args:
             imgs: FloatTensor [B,3,H,W] or [3,H,W], RGB, Range [0,255].
@@ -59,11 +49,15 @@ class MTCNN(object):
             verbose: If True, enables verbose logging.
             return_zero: If False, returns (None, None) when no faces are detected. Otherwise, return empty tensors with B = 0, N = 0, C = 5 for boxes and 10 for landmarks.
             return_type: Type of the return value. Can be 'any', 'tensor', or 'list'. If 'any', the return type is the same as the input. 
+            conf_threshes: List of confidence thresholds for PNet, RNet, and ONet.
+            nms_threshes: List of NMS thresholds for PNet, RNet, and ONet.
+            min_face_size: Minimum size of faces to detect.
+            scale_factor: Scale factor for image pyramid.
 
         Returns:
             boxes: Tensor [B,N,5]  (x1,y1,x2,y2,score) or List[Tensor] of shape [N,5] or None or empty tensor of shape [0,0,5]
             landmarks: Tensor [B,N,10] or List[Tensor] of shape [N,10] or None or empty tensor of shape [0,0,10]
-            The sequence of the 10 landmarks are: 
+            The sequence of the 5 landmarks are: 
             [x1, y1, x2, y2, ..., x5, y5] coordinates for:
             left eye, right eye, nose, left mouth corner, right mouth corner
         """
@@ -93,20 +87,20 @@ class MTCNN(object):
             #####################################
             # P-Net
             #####################################
-            pyramid = self._build_pyramid(img)
+            pyramid = self._build_pyramid(img, min_face_size, scale_factor)
             all_bboxes_stage1: List[torch.Tensor] = []
             for pyramid_idx, (scaled_img, scale) in enumerate(pyramid):
                 offset, prob = self.pnet(scaled_img) # Offset: [1, 4, H', W'], Probs: [1, 2, H', W']
                 prob = prob[0, 1, :, :] # Extract face confidence scores, Probs: [H', W']
                 offset = offset[0] # Extract offsets, Offset: [4, H', W']
-                stage1_bboxes = self._gen_bboxes(prob, offset, scale, self.conf_threshes[0])
+                stage1_bboxes = self._gen_bboxes(prob, offset, scale, conf_threshes[0])
                 if stage1_bboxes is not None:
                     all_bboxes_stage1.append(stage1_bboxes)
             if not all_bboxes_stage1:
                 print(f"Image {img_idx} has no faces detected in PNet.")
                 continue
             all_bboxes_stage1 = torch.cat(all_bboxes_stage1, dim=0)  # [N, 5] (x1, y1, x2, y2, score)
-            keep = nms(all_bboxes_stage1[:, :4], all_bboxes_stage1[:, 4], self.nms_threshes[0])
+            keep = nms(all_bboxes_stage1[:, :4], all_bboxes_stage1[:, 4], nms_threshes[0])
             if keep.numel() == 0:
                 print(f"Image {img_idx} has no faces detected after PNet and NMS.")
                 continue
@@ -124,14 +118,14 @@ class MTCNN(object):
             crops = self._rescale_imgs(crops)  # Rescale to [-1, 1]
             offsets, probs = self.rnet(crops)  # Offset: [N, 4], Probs: [N, 2]
             probs = probs[:, 1]  # Extract face confidence scores, Probs: [N]
-            keep = probs > self.conf_threshes[1]
+            keep = probs > conf_threshes[1]
             if not keep.any():
                 print(f"Image {img_idx} has no faces detected in RNet.")
                 continue
             all_bboxes_stage2 = all_bboxes_stage1[keep]
             all_bboxes_stage2[:, 4] = probs[keep]
             offsets = offsets[keep]  # [N, 4]
-            keep = nms(all_bboxes_stage2[:, :4], all_bboxes_stage2[:, 4], self.nms_threshes[1])
+            keep = nms(all_bboxes_stage2[:, :4], all_bboxes_stage2[:, 4], nms_threshes[1])
             if keep.numel() == 0:
                 print(f"Image {img_idx} has no faces detected after RNet and NMS.")
                 continue
@@ -151,7 +145,7 @@ class MTCNN(object):
             crops = self._rescale_imgs(crops)
             landmarks, offsets, probs = self.onet(crops) # Landmarks: [N, 10], Offsets: [N, 4], Probs: [N, 2]
             probs = probs[:, 1]  # Extract face confidence scores, Probs: [N]
-            keep = probs > self.conf_threshes[2]
+            keep = probs > conf_threshes[2]
             if not keep.any():
                 print(f"Image {img_idx} has no faces detected in ONet.")
                 continue
@@ -165,7 +159,7 @@ class MTCNN(object):
             landmarks[:, 0:5] = xmin.unsqueeze(1) + w.unsqueeze(1)*landmarks[:, 0:5]
             landmarks[:, 5:10] = ymin.unsqueeze(1) + h.unsqueeze(1)*landmarks[:, 5:10]
             all_bboxes_stage3 = self._calibrate(all_bboxes_stage3, offsets)
-            keep = nms(all_bboxes_stage3[:, :4], all_bboxes_stage3[:, 4], self.nms_threshes[2])
+            keep = nms(all_bboxes_stage3[:, :4], all_bboxes_stage3[:, 4], nms_threshes[2])
             if keep.numel() == 0:
                 print(f"Image {img_idx} has no faces detected after ONet and NMS.")
                 continue
@@ -194,7 +188,7 @@ class MTCNN(object):
         """
         return (img - 127.5) * 0.0078125
 
-    def _build_pyramid(self, img: torch.Tensor) -> List[Tuple[torch.Tensor, float]]:
+    def _build_pyramid(self, img: torch.Tensor, min_face_size: float, scale_factor: float) -> List[Tuple[torch.Tensor, float]]:
         """
         Args:
             img: [B, 3, H, W]
@@ -207,8 +201,8 @@ class MTCNN(object):
         min_size = min(h, w)
         
         # Calculate the minimum scale such that the minimum side becomes min_face_size
-        min_scale = self.min_face_size / min_size
-        
+        min_scale = min_face_size / min_size
+
         pyramid = []
         scale = 1.0
         
@@ -216,7 +210,7 @@ class MTCNN(object):
             scaled_imgs = F.interpolate(img, scale_factor=scale, mode='bilinear', align_corners=False)
             preprocessed_imgs = self._rescale_imgs(scaled_imgs)
             pyramid.append((preprocessed_imgs, scale))
-            scale *= self.scale_factor
+            scale *= scale_factor
             
         return pyramid
     

@@ -45,7 +45,7 @@ CONDA_BASE=$(conda info --base)
 source "$CONDA_BASE/etc/profile.d/conda.sh"
 conda activate base
 
-ENV_NAME="protego"
+ENV_NAME="protego_plus"
 PYTHON_VERSION="3.9" 
 if conda env list | grep -q "^$ENV_NAME\s"; then
     echo "Error: Conda environment '$ENV_NAME' already exists. Please remove it or choose a different name."
@@ -90,11 +90,11 @@ cd ..
 echo "All packages installed successfully!"
 
 echo "Downloading MTCNN weights..."
-cd mtcnn_pytorch/weights
+cd FD_DB/MTCNN/pretrained/
 gdown --fuzzy "https://drive.google.com/file/d/1uJopXpkHHzzImZ-4LVWrRHHMbUECi5Fb/view?usp=share_link"
 unzip mtcnn_pytorch_weights.zip
 rm -f mtcnn_pytorch_weights.zip
-cd ../..
+cd ../../..
 
 echo "Downloading IR50-AdaFace-CASIA weights..."
 cd FR_DB/adaface/pretrained
