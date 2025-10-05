@@ -173,7 +173,7 @@ class MTCNN(object):
         if return_type == 'tensor':
             return torch.cat(bboxes, dim=0), torch.cat(ldmks, dim=0)
         if return_type == 'list':
-            return bboxes, ldmks
+            return [b[0] for b in bboxes], [l[0] for l in ldmks]
 
     # ----------------- Helper Functions -----------------
     def _rescale_imgs(self, img: torch.Tensor) -> torch.Tensor:

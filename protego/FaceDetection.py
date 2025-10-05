@@ -107,12 +107,15 @@ class MTCNN_Wrapper(object):
         conf_threshes = conf_thresh if conf_thresh is not None else [0.6, 0.7, 0.8]
         nms_threshes = nms_thresh if nms_thresh is not None else [0.7, 0.7, 0.7]
         bboxs, ldmks = self.model.detect(img, return_zero=False, return_type='list', conf_threshes=conf_threshes, nms_threshes=nms_threshes)
+        #print(bboxs, ldmks)
         if bboxs is None or ldmks is None:
             return None
+        bboxs, ldmks = bboxs[0], ldmks[0]  # input is a single image
         dets = []
         for bbox, ldmk in zip(bboxs, ldmks):
             bbox = bbox.cpu().numpy()
             ldmk = ldmk.cpu().numpy()
+            #print(bbox.shape, ldmk.shape)
             x1, y1, x2, y2, score = bbox[0], bbox[1], bbox[2], bbox[3], bbox[4]
             x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
             ldmk = [int(x) for x in ldmk]

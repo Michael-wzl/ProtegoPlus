@@ -10,11 +10,13 @@ import copy
 
 import torch
 if torch.cuda.is_available():
-    torch.backends.cudnn.deterministic = False
-    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 from omegaconf import OmegaConf
 
 from protego.protego_train import train_protego_mask
+from protego.protego_train_lpips import train_protego_mask_lpips
+from protego.chameleon_train import train_chameleon_mask
 from protego.run_exp import run
 from protego.FacialRecognition import BASIC_POOL, SPECIAL_POOL
 from protego import BASE_PATH
@@ -108,5 +110,6 @@ if __name__ == "__main__":
             indices = torch.randperm(len(imgs), generator=rand_gen).tolist()
             imgs = [imgs[i] for i in indices]
         data[protectee] = {'train': imgs[:train_num], 'eval': imgs[train_num:]}
-    run(cfgs, mode='train', data=data, train=train_protego_mask)
-    
+    #run(cfgs, mode='train', data=data, train=train_protego_mask)
+    run(cfgs, mode='train', data=data, train=train_protego_mask_lpips)
+    #run(cfgs, mode='train', data=data, train=train_chameleon_mask)

@@ -11,13 +11,45 @@ import tqdm
 import PIL
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, TensorDataset
-from torch.utils.data import random_split as train_val_split
+from torch.utils.data import DataLoader
 from pytorch_msssim import ssim as calc_ssim
+import lpips
 
 from .FaceDetection import FD
 from .FacialRecognition import FR
 from .compression import compress
+
+def kmeans(features: torch.Tensor, n_clusters: int, rand_seed: int, max_iter: int = 1000, distance: str = "cosine") -> torch.Tensor:
+    """
+    Use torch to accelerate k-means clustering.
+
+    Args:
+        features (torch.Tensor): The features to cluster. Shape: (N, D), where N is the number of features and D is the feature dimension.
+        n_clusters (int): The number of clusters.
+        rand_seed (int): The random seed for initialization.
+        distance (str): The distance metric to use. Either 'cosine' or 'euclidean'.
+
+    Returns:
+        torch.Tensor: The cluster assignments for each feature. Shape: (N,), where each value is in [0, n_clusters-1].
+    """
+    # Initialization
+    rand_generator = torch.Generator().manual_seed(rand_seed)
+    centroids = features[torch.randperm(features.size(0), generator=rand_generator)[:n_clusters]]
+    for _ in range(max_iter):
+        if distance == 'cosine':
+            sim_matrix = torch.matmul(F.normalize(features, p=2, dim=1), F.normalize(centroids, p=2, dim=1).T)
+            preds = sim_matrix.argmax(dim=1)
+        elif distance == 'euclidean':
+            dist_matrix = torch.cdist(features, centroids, p=2)
+            preds = dist_matrix.argmin(dim=1)
+        else:
+            raise ValueError(f"Unsupported distance function: {distance}. Use 'cosine' or 'euclidean'.")
+        new_centroids = torch.stack([features[preds == i].mean(dim=0) if torch.any(preds == i) else centroids[i] for i in range(n_clusters)], dim=0)
+        if torch.all(centroids == new_centroids):
+            return preds
+        centroids = new_centroids
+    print(f'Warning: k-means did not converge within {max_iter} iterations.')
+    return preds
 
 def crop_face(img: torch.Tensor, 
             detector: FD, 
@@ -95,7 +127,10 @@ def crop_face(img: torch.Tensor,
 
         cropped_face = img[:, square_y1:square_y2, square_x1:square_x2].clone()
         position = (square_x1, square_y1, square_x2, square_y2)
-
+    if cropped_face.shape[1] < min_h or cropped_face.shape[2] < min_w:
+        if verbose:
+            print(f"Warning: No valid face detected that meets the criteria. min_h: {min_h}, min_w: {min_w}.")
+        return None, None
     return cropped_face, position
 
 def complete_del() -> None:
@@ -193,11 +228,19 @@ def build_facedb(db_path: str, fr_name: str, device: torch.device) -> Dict[str, 
         Dict[str, torch.Tensor]: A dictionary containing the features for each person in the database.
     """
     db = {}
-    for name in sorted(os.listdir(db_path)):
-        if name.startswith('.') or name.startswith('_'):
-            continue
+    names = sorted([n for n in os.listdir(db_path) if not n.startswith(('.', '_'))])
+    if not os.path.exists(os.path.join(db_path, names[0], f'{fr_name}.pt')):
+        print(f"Features not pre-extracted for {fr_name}, extracting now...")
+        fr = FR(model_name=fr_name, device=device)
+    for name in names:
         personal_path = os.path.join(db_path, name)
-        features = torch.load(os.path.join(personal_path, f'{fr_name}.pt'))
+        feature_path = os.path.join(personal_path, f'{fr_name}.pt')
+        if not os.path.exists(feature_path):
+            imgs_tensors = load_imgs(personal_path, img_sz=224, usage_portion=1., drange=1, device=device)
+            features = fr(imgs_tensors).cpu()
+            torch.save(features, feature_path)
+        else:
+            features = torch.load(os.path.join(personal_path, f'{fr_name}.pt'))
         db[name] = features.to(device)
     return db
 
@@ -425,7 +468,9 @@ def eval_masks(three_d: bool,
     tensor_masks = masks
     img_cnt = 0
     orig_features, protected_features = [], []
-    ssims, psnrs, l0s, l1s, l2s, linfs = [], [], [], [], [], []
+    ssims, psnrs, lpipses, l0s, l1s, l2s, linfs = [], [], [], [], [], [], []
+    if vis_eval:
+        lpips_vgg = lpips.LPIPS(net='vgg').to(device)
     for idx, tensors in tqdm.tqdm(enumerate(test_data), total=len(test_data), desc="Applying mask, extracting features, and evaluating visual quality"):
         orig_faces = tensors[0].to(device)  # Shape: [B, 3, H, W]
         img_num = orig_faces.shape[0]
@@ -446,6 +491,7 @@ def eval_masks(three_d: bool,
             prot_img = prot_img.unsqueeze(0)
             orig_img = orig_img.unsqueeze(0)
             if vis_eval:
+                lpipses.append(lpips_vgg(prot_img * 2 - 1, orig_img * 2 - 1).mean().detach().cpu().numpy().item())
                 ssims.append(calc_ssim(prot_img, orig_img, data_range=1, size_average=True).cpu().numpy().item())
                 norms = cal_norms(prot_img, orig_img, epsilon)
                 l0s.append(norms['l0'])
@@ -457,7 +503,7 @@ def eval_masks(three_d: bool,
     complete_del()
 
     if not vis_eval:
-        psnrs, ssims, l0s, l1s, l2s, linfs = [0], [0], [0], [0], [0], [0]
+        psnrs, ssims, lpipses, l0s, l1s, l2s, linfs = [0], [0], [0], [0], [0], [0], [0]
     mean_l0 = np.mean(l0s).item()
     max_l0 = max(l0s)
     min_l0 = min(l0s)
@@ -476,6 +522,9 @@ def eval_masks(three_d: bool,
     mean_psnr = np.mean(psnrs).item()
     max_psnr = max(psnrs)
     min_psnr = min(psnrs)
+    mean_lpips = np.mean(lpipses).item()
+    max_lpips = max(lpipses)
+    min_lpips = min(lpipses)
     orig_features = torch.cat(orig_features, dim=0).to(device)
     protected_features = torch.cat(protected_features, dim=0).to(device)
 
@@ -513,7 +562,10 @@ def eval_masks(three_d: bool,
         'ssim_min': min_ssim,
         'psnr': mean_psnr,
         'psnr_max': max_psnr,
-        'psnr_min': min_psnr
+        'psnr_min': min_psnr, 
+        'lpips': mean_lpips,
+        'lpips_max': max_lpips,
+        'lpips_min': min_lpips
     }
 
 def compression_eval(compression_methods: List[str], 

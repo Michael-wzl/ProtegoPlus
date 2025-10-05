@@ -82,11 +82,9 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
         res_save_path = os.path.join(res_path, protectee)
         os.makedirs(res_save_path, exist_ok=False)
         print(f"Created directory {res_save_path} for protectee {protectee}.")
-
-        if mode == 'train':
-            with open(os.path.join(res_save_path, 'cfgs.yaml'), 'w') as f:
+        with open(os.path.join(res_save_path, 'cfgs.yaml'), 'w') as f:
                 OmegaConf.save(cfgs, f)
-
+        if mode == 'train':
             with torch.no_grad():
                 if not cfgs.need_cropping:
                     training_imgs: torch.Tensor = load_imgs(img_paths=protectee_data['train'], img_sz=cfgs.mask_size, drange=255, device=device)
