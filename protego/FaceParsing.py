@@ -1,9 +1,11 @@
 import os
 from typing import List, Dict, Any
+import zipfile
 
 import torch
 import torch.nn.functional as F
 from torchvision import transforms
+import gdown
 
 from .FacialRecognition import download
 from FP_DB.FaRL.cfg import pretrain_settings
@@ -13,6 +15,30 @@ FP_DB_PATH = os.path.join(BASE_PATH, 'FP_DB')
 FARL_HOME = os.path.join(FP_DB_PATH, 'FaRL')
 
 BASIC_POOL = ['farl_lapa', 'farl_celebm']
+
+def download(path: str, url: str) -> None:
+    """
+    A crude download util function, only tailoreed for the scenarios this project meets. 
+
+    Args:
+        path (str): The local desired path of the weight file
+        url (str): The URL of the file to download.
+    """
+    folder = "/".join(path.split("/")[:-1])+'/'
+    if not os.path.exists(path):
+        print(f"Weight {path} does not exist. Downloading it from {url}")
+        if "uc?id" in url:
+            file_id = url.split("uc?id=")[-1]
+            downloaded_f = gdown.download(id=file_id, output=folder, quiet=False)
+        elif "view?usp=sharing" in url:
+            downloaded_f = gdown.download(url=url, output=folder, fuzzy=True, quiet=False)
+        if downloaded_f.endswith(".zip"):
+            with zipfile.ZipFile(downloaded_f, 'r') as zip_ref:
+                zip_ref.extractall(folder)
+            os.remove(downloaded_f)
+        elif downloaded_f != path:
+            os.rename(downloaded_f, path)
+    return
 
 @torch.no_grad()
 class FP(object):

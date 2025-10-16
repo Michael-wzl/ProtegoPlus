@@ -4,13 +4,14 @@ import datetime
 
 import torch
 from torch.utils.data import DataLoader, TensorDataset
+import torch.nn.functional as F
 import numpy as np
 import yaml
 from omegaconf import OmegaConf
 
 from .FacialRecognition import FR
 from .FaceDetection import FD
-from .utils import load_imgs, load_mask, build_facedb, build_compressed_face_db, crop_face, complete_del, visualize_mask, eval_masks, compression_eval
+from .utils import load_imgs, load_mask, build_facedb, build_compressed_face_db, crop_face, complete_del, visualize_mask, eval_masks, compression_eval, eval_mask_end2end
 from . import BASE_PATH
 from .UVMapping import UVGenerator
 
@@ -20,7 +21,7 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
 
     Args:
         cfgs (OmegaConf): Configuration object containing settings for the run.
-        mode (str): Mode of operation, either 'train' or 'eval'.
+        mode (str): Mode of operation, 'train' or 'eval'. 
         data (Dict[str, Dict[str, List[str]]]): Dictionary containing the paths to each image.
             {"Bradley_Cooper": {
                 'train': [list of training image paths],
@@ -94,11 +95,11 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
                     _cropped_imgs = []
                     _no_face = []
                     for img_idx, img in enumerate(training_imgs):
-                        cropped_face, pos = crop_face(img=img.squeeze(0), detector=fd, verbose=True)
+                        cropped_face, pos = crop_face(img=img.squeeze(0), detector=fd, crop_loosen=cfgs.crop_loosen, verbose=True)
                         if cropped_face is None or pos is None:
                             _no_face.append(img_idx)
                             continue
-                        _cropped_imgs.append(cropped_face)
+                        _cropped_imgs.append(F.interpolate(cropped_face.unsqueeze(0), size=(cfgs.mask_size, cfgs.mask_size), mode='bilinear', align_corners=True, antialias=True).squeeze(0))
                     print(f"{len(_no_face)} training images do not have detectable faces and are ignored:")
                     for idx in _no_face:
                         print(f"{protectee_data['train'][idx]}")
@@ -158,20 +159,24 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
             univ_mask = load_mask(mask_path=mask_path, device=device)
         
         with torch.no_grad():
-            eval_imgs = load_imgs(img_paths=protectee_data['eval'], img_sz=cfgs.mask_size, usage_portion=1.0, drange=255, device=device)
             if cfgs.need_cropping:
+                eval_imgs = load_imgs(img_paths=protectee_data['eval'], img_sz=-1, usage_portion=1.0, drange=255, device=device)
                 _cropped_imgs = []
                 _no_face = []
-                for img in eval_imgs:
-                    cropped_face, pos = crop_face(img=img, detector=fd, verbose=True)
+                for img_idx, img in enumerate(eval_imgs):
+                    cropped_face, pos = crop_face(img=img.squeeze(0), detector=fd, crop_loosen=cfgs.crop_loosen, verbose=True)
                     if cropped_face is None or pos is None:
-                        _no_face.append(img)
+                        _no_face.append(img_idx)
                         continue
-                    _cropped_imgs.append(cropped_face)
+                    _cropped_imgs.append(F.interpolate(cropped_face.unsqueeze(0), size=(cfgs.mask_size, cfgs.mask_size), mode='bilinear', align_corners=True, antialias=True).squeeze(0))
                 print(f"{len(_no_face)} eval images do not have detectable faces and are ignored:")
                 for idx in _no_face:
                     print(f"{protectee_data['eval'][idx]}")
                 eval_imgs = torch.stack(_cropped_imgs, dim=0)
+                del _cropped_imgs
+                complete_del()
+            else:
+                eval_imgs = load_imgs(img_paths=protectee_data['eval'], img_sz=cfgs.mask_size, usage_portion=1.0, drange=255, device=device)
             eval_imgs.div_(255.)
             img_num = eval_imgs.shape[0]
             # Ensure UV mapping runs on the target device, then move tensors back to CPU for DataLoader workers
@@ -179,7 +184,6 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
             eval_imgs = eval_imgs.cpu()
             eval_uvs = eval_uvs.cpu()
             eval_bin_masks = eval_bin_masks.cpu()
-            workers = getattr(cfgs, 'num_workers', 4)
             eval_dl = DataLoader(
                 dataset=TensorDataset(eval_imgs, eval_uvs, eval_bin_masks),
                 batch_size=16,
@@ -190,6 +194,17 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
             )
             del eval_imgs, eval_uvs, eval_bin_masks
             complete_del()
+            if cfgs.visualize_interval > 0:
+                for img_idx in range(0, img_num, cfgs.visualize_interval):
+                    visualize_mask(
+                        orig_img=eval_dl.dataset[img_idx][0].to(device),
+                        uv=eval_dl.dataset[img_idx][1].to(device),
+                        bin_mask=eval_dl.dataset[img_idx][2].to(device),
+                        univ_mask=univ_mask.clone().to(device),
+                        epsilon=cfgs.epsilon,
+                        save_path=os.path.join(res_save_path, f"eval_vis_{img_idx}.png"),
+                        use_bin_mask=cfgs.bin_mask,
+                        three_d=cfgs.three_d)
             for eval_fr in eval_frs:
                 noise_db = build_facedb(db_path=noise_db_path, fr_name=eval_fr.model_name, device=device)
                 res = eval_masks(
@@ -203,8 +218,8 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
                     masks=univ_mask.repeat(img_num, 1, 1, 1), 
                     query_portion=cfgs.query_portion,
                     vis_eval=cfgs.vis_eval,
-                    verbose=True
-                )
+                    lpips_backbone=cfgs.lpips_backbone, 
+                    verbose=True)
                 if mode == 'train':
                     res['training_time'] = training_time
                 with open(os.path.join(res_save_path, f"eval_res_{eval_fr.model_name}.yaml"), 'w') as f:
@@ -232,6 +247,28 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
                         yaml.dump(compression_res, f)
             del eval_dl
             complete_del()
+            if cfgs.end2end_eval:
+                end2end_res = eval_mask_end2end(
+                                three_d=cfgs.three_d,
+                                test_raw_imgs=load_imgs(img_paths=protectee_data['eval'], img_sz=-1, usage_portion=1.0, drange=1, device=device), 
+                                face_db_path=noise_db_path, 
+                                frs=eval_frs,
+                                fd=fd if cfgs.need_cropping else FD(model_name="resnet50_retinaface_widerface", device=device),
+                                uvmapper=uvmapper, 
+                                device=device,
+                                bin_mask=cfgs.bin_mask,
+                                epsilon=cfgs.epsilon,
+                                mask=univ_mask.clone(), 
+                                query_portion=cfgs.query_portion,
+                                resize_face=cfgs.resize_face, 
+                                jpeg=cfgs.jpeg, 
+                                vis_eval=False, 
+                                lpips_backbone=cfgs.lpips_backbone,
+                                verbose=True)
+                prot_results = end2end_res['prot_results']
+                for fr_name, prot_res in prot_results.items():
+                    with open(os.path.join(res_save_path, f"end2end_eval_res_{fr_name}.yaml"), 'w') as f:
+                        yaml.dump(prot_res, f)
     if mode == 'train':
         print(f"Average training time: {np.mean(training_times):.2f} seconds.")
 

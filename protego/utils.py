@@ -11,13 +11,15 @@ import tqdm
 import PIL
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 from pytorch_msssim import ssim as calc_ssim
 import lpips
 
 from .FaceDetection import FD
 from .FacialRecognition import FR
 from .compression import compress
+from . import BASE_PATH
+from .UVMapping import UVGenerator
 
 def kmeans(features: torch.Tensor, n_clusters: int, rand_seed: int, max_iter: int = 1000, distance: str = "cosine") -> torch.Tensor:
     """
@@ -180,7 +182,7 @@ def load_mask(mask_path: str, device: torch.device = torch.device("cpu")) -> tor
     """
     return torch.tensor(np.load(mask_path, allow_pickle=True)[0], dtype=torch.float32, device=device).to(device).unsqueeze(0)
 
-def load_imgs(base_dir: str = None, img_paths: List[str] = None, img_sz: int = 224, usage_portion: float = 1.0, drange: int = 1, device: torch.device = torch.device('cpu')) -> Union[torch.Tensor, List[torch.Tensor]]:
+def load_imgs(base_dir: str = None, img_paths: Optional[List[str]] = None, img_sz: int = 224, usage_portion: float = 1.0, drange: int = 1, device: torch.device = torch.device('cpu'), return_img_paths: bool = False) -> Union[torch.Tensor, List[torch.Tensor], Tuple[torch.Tensor, List[str]], Tuple[List[torch.Tensor], List[str]]]:
     """
     Read images from a directory and convert them to tensors.
 
@@ -191,12 +193,14 @@ def load_imgs(base_dir: str = None, img_paths: List[str] = None, img_sz: int = 2
         usage_portion (float): The portion of the images to use.
         drange (int): The range of the image. Default is 1. Either 1 or 255.
         device (torch.device): The device to store the tensor. Default is CPU.
+        return_img_paths (bool): Whether to return the list of image paths.
 
     Returns:
-        Union[torch.Tensor, List[torch.Tensor]]: The tensor of the images. Shape [B, 3, img_sz, img_sz]. RGB, range [0, 1], dtype: float32.
-        A list of tensors if img_sz is -1.
+        Union[torch.Tensor, List[torch.Tensor], Tuple[torch.Tensor, List[str]], Tuple[List[torch.Tensor], List[str]]]: The tensor of the images. Shape [B, 3, img_sz, img_sz]. RGB, range [0, 1], dtype: float32.
+        A list of tensors if img_sz is -1. Will also return the list of image paths if return_img_paths is True.
     """
     img_tensors = []
+    valid_img_paths = []
     if base_dir is not None and img_paths is None:
         img_num = len(os.listdir(base_dir))
         imgs_names = sorted([os.path.join(base_dir, name) for name in os.listdir(base_dir) if name.endswith(('.jpg', '.png', '.jpeg', '.bmp')) and not (name.startswith('.') or name.startswith('_'))])
@@ -205,15 +209,24 @@ def load_imgs(base_dir: str = None, img_paths: List[str] = None, img_sz: int = 2
         imgs_names = img_paths
     else:
         raise ValueError("Either base_dir or img_paths should be provided, but not both or neither.")
-    for img_path in imgs_names:
-        img = PIL.Image.open(img_path).convert('RGB')
+    for img_idx, img_path in enumerate(imgs_names):
+        try:
+            img = PIL.Image.open(img_path).convert('RGB')
+        except Exception as e:
+            print(f"Warning: Failed to open image {img_path}. Skipping. Error: {e}")
+            continue
         img = np.array(img)
         if img_sz != -1:
             img = cv2.resize(img, (img_sz, img_sz), interpolation=cv2.INTER_LANCZOS4 if img.shape[0] < img_sz else cv2.INTER_AREA)
         img_tensors.append(img2tensor(img, drange=drange, device=device))
+        if return_img_paths:
+            valid_img_paths.append(img_path)
         if len(img_tensors) >= int(img_num * usage_portion):
             break
-    return torch.cat(img_tensors, dim=0) if img_sz != -1 else img_tensors
+    imgs = torch.cat(img_tensors, dim=0) if img_sz != -1 else img_tensors
+    if return_img_paths:
+        return imgs, valid_img_paths
+    return imgs
 
 def build_facedb(db_path: str, fr_name: str, device: torch.device) -> Dict[str, torch.Tensor]:
     """
@@ -445,6 +458,7 @@ def eval_masks(three_d: bool,
             masks: torch.Tensor,
             query_portion: float = 0.5, 
             vis_eval: bool = True, 
+            lpips_backbone: str = "vgg", 
             verbose: bool = False) -> Dict[str, float]:
     """
     Evaluate masks against a database of facial features.
@@ -460,6 +474,7 @@ def eval_masks(three_d: bool,
         masks (torch.Tensor): The masks to apply. Shape: (B, 3, H, W). Range: [-epsilon, epsilon]. dtype: np.float32.
         query_portion (float): The portion of the test data to use as queries.
         vis_eval (bool): Whether to visualize the evaluation results.
+        lpips_backbone (str): The backbone to use for LPIPS calculation. 'vgg', 'alex', or 'squeeze'.
         verbose (bool): Whether to print the evaluation results.
 
     Returns:
@@ -470,7 +485,7 @@ def eval_masks(three_d: bool,
     orig_features, protected_features = [], []
     ssims, psnrs, lpipses, l0s, l1s, l2s, linfs = [], [], [], [], [], [], []
     if vis_eval:
-        lpips_vgg = lpips.LPIPS(net='vgg').to(device)
+        lpips_evaluator = lpips.LPIPS(net=lpips_backbone).to(device)
     for idx, tensors in tqdm.tqdm(enumerate(test_data), total=len(test_data), desc="Applying mask, extracting features, and evaluating visual quality"):
         orig_faces = tensors[0].to(device)  # Shape: [B, 3, H, W]
         img_num = orig_faces.shape[0]
@@ -491,7 +506,21 @@ def eval_masks(three_d: bool,
             prot_img = prot_img.unsqueeze(0)
             orig_img = orig_img.unsqueeze(0)
             if vis_eval:
-                lpipses.append(lpips_vgg(prot_img * 2 - 1, orig_img * 2 - 1).mean().detach().cpu().numpy().item())
+                """res = lpips_evaluator(prot_img * 2 - 1, orig_img * 2 - 1)
+                lpips_value = res.mean().detach().cpu().numpy().item()
+                res_min, res_max = res.min(), res.max()
+                heat_map = (res - res.min()) / (res.max() - res.min() + 1e-10)
+                heat_map = heat_map[0, 0].cpu().numpy()
+                orig_np = (orig_img.clone().squeeze(0).permute(1, 2, 0).cpu().numpy())
+                prot_np = (prot_img.clone().squeeze(0).permute(1, 2, 0).cpu().numpy())
+                plt.figure(figsize=(12, 4))
+                plt.subplot(1, 3, 1); plt.imshow(orig_np); plt.title('Original Image'); plt.axis('off')
+                plt.subplot(1, 3, 2); plt.imshow(prot_np); plt.title('Protected Image'); plt.axis('off')
+                plt.subplot(1, 3, 3); plt.imshow(np.clip(orig_np, 0, 1)); plt.imshow(heat_map, cmap='magma', alpha=0.5); plt.title(f'LPIPS Heat Map (min: {res_min:.4f}, max: {res_max:.4f})'); plt.axis('off')
+                plt.suptitle(f'LPIPS: {lpips_value:.4f}')
+                plt.savefig(f"/home/zlwang/ProtegoPlus/trash/heat_maps/spatial_lpipsfalse_{idx}.png")
+                lpipses.append(lpips_value)"""
+                lpipses.append(lpips_evaluator(prot_img * 2 - 1, orig_img * 2 - 1).mean().detach().cpu().numpy().item())
                 ssims.append(calc_ssim(prot_img, orig_img, data_range=1, size_average=True).cpu().numpy().item())
                 norms = cal_norms(prot_img, orig_img, epsilon)
                 l0s.append(norms['l0'])
@@ -568,6 +597,169 @@ def eval_masks(three_d: bool,
         'lpips_min': min_lpips
     }
 
+def eval_mask_end2end(three_d: bool, 
+                    test_raw_imgs: List[torch.Tensor],
+                    face_db_path: str, 
+                    frs: List[FR], 
+                    fd: FD, 
+                    uvmapper: UVGenerator, 
+                    device: torch.device, 
+                    bin_mask: bool, 
+                    epsilon: float, 
+                    mask: torch.Tensor,
+                    query_portion: float = 0.5, 
+                    resize_face: bool = True, 
+                    jpeg: bool = False, 
+                    vis_eval: bool = True, 
+                    lpips_backbone: str = "vgg", 
+                    verbose: bool = False) -> Dict[str, Union[float, Dict[str, float]]]:
+    """
+    Evaluate masks against a database of facial features in an end-to-end manner, aka starting from uncropped images to protection evaluation.
+
+    Args:
+        three_d (bool): Whether to use 3D masks.
+        test_raw_imgs (List[torch.Tensor]): The list of original uncropped images. Each tensor has shape (3, H, W), range [0, 1], dtype: torch.float32.
+        face_db_path (str): The path to the database of facial features.
+        frs (List[FR]): The list of facial recognition models.
+        fd (FD): The face detection model.
+        uvmapper (UVGenerator): The UV mapper for generating UV maps.
+        device (torch.device): The device to use for computation.
+        bin_mask (bool): Whether to use binary masks.
+        epsilon (float): The maximum perturbation value.
+        mask (torch.Tensor): The mask to apply. Shape: (1, 3, H, W). Range: [-epsilon, epsilon]. dtype: np.float32.
+        resize_face (bool): Whether to resize the face or the mask.
+        jpeg (bool): Whether to apply JPEG compression with quality 75 to the protected images before feature extraction.
+        query_portion (float): The portion of the test data to use as queries.
+        vis_eval (bool): Whether to visualize the evaluation results.
+        lpips_backbone (str): The backbone to use for LPIPS calculation. 'vgg', 'alex', or 'squeeze'.
+        verbose (bool): Whether to print the evaluation results.
+
+    Returns:
+        Dict[str, Union[float, Dict[str, float]]]: A dictionary containing the evaluation results. Includes retrieval accuracies for each FR model, various norms, and visual quality metrics.
+    """
+    resized_faces, faces, positions = [], [], []
+    for img_idx, raw_img in tqdm.tqdm(enumerate(test_raw_imgs), desc="Detecting and cropping faces from raw images"):
+        raw_img = raw_img.to(device)
+        face, pos = crop_face(raw_img.mul(255.), fd, verbose=False)
+        if face is None or pos is None:
+            print(f"Warning: No valid face detected in image {img_idx}. Skipping.")
+            continue
+        pos = list(pos)
+        pos.append(img_idx)
+        resized_faces.append(F.interpolate(face.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False).squeeze(0))
+        if not resize_face:
+            faces.append(face)
+        positions.append(pos)
+    resized_faces = torch.stack(resized_faces, dim=0)
+    uvs, bin_masks = uvmapper.forward(imgs=resized_faces)
+    perts = torch.clamp(F.grid_sample(mask.repeat(resized_faces.shape[0], 1, 1, 1), uvs, mode='bilinear', align_corners=True), -epsilon, epsilon) if three_d else mask.repeat(faces.shape[0], 1, 1, 1)
+    if bin_mask:
+        perts = perts * bin_masks
+    protected_imgs = []
+    for pos_idx, pos in enumerate(positions):
+        x1, y1, x2, y2, img_idx = pos
+        protected_img = test_raw_imgs[img_idx].clone()
+        if resize_face:
+            protected_face = torch.clamp(resized_faces[pos_idx] + perts[pos_idx], 0, 1)
+            protected_face = F.interpolate(protected_face.unsqueeze(0), size=(y2 - y1, x2 - x1), mode='bilinear', align_corners=False).squeeze(0)
+            protected_img[y1:y2, x1:x2] = protected_face
+        else:
+            pert = F.interpolate(perts[[pos_idx]], size=(y2 - y1, x2 - x1), mode='bilinear', align_corners=False).squeeze(0)
+            print(pert.max(), pert.min())
+            protected_face = torch.clamp(faces[pos_idx] + pert, 0, 1)
+            protected_img[y1:y2, x1:x2] = protected_face
+        protected_imgs.append(protected_img)
+    del faces, perts, uvs, bin_masks
+    complete_del()
+    protected_imgs = torch.stack(protected_imgs, dim=0)
+    if jpeg:
+        protected_imgs = compress(protected_imgs, method='jpeg', quality=75)
+    protected_imgs = protected_imgs.mul(255.).to(torch.uint8).float().div(255.)
+    protected_faces = []
+    have_face = []
+    for img_idx, protected_img in tqdm.tqdm(enumerate(protected_imgs), desc="Re-detecting and cropping faces from protected images"):
+        protected_face, pos = crop_face(protected_img.mul(255.), fd, verbose=False)
+        if protected_face is None or pos is None:
+            print(f"Warning: No valid face detected in protected image {img_idx}. Skipping.")
+            continue
+        protected_faces.append(F.interpolate(protected_face.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False).squeeze(0))
+        have_face.append(img_idx)
+    protected_faces = torch.stack(protected_faces, dim=0)
+    original_faces = resized_faces[have_face]
+    l0s, l1s, l2s, linfs, psnrs, ssims, lpipses = [0], [0], [0], [0], [0], [0], [0]
+    if vis_eval:
+        dl = DataLoader(dataset=TensorDataset(original_faces, protected_faces), batch_size=16, shuffle=False, num_workers=4)
+        lpips_evaluator = lpips.LPIPS(net=lpips_backbone).to(device)
+        for tensors in dl:
+            orig_faces, prot_faces = tensors
+            orig_faces, prot_faces = orig_faces.to(device), prot_faces.to(device)
+            norms = cal_norms(prot_faces, orig_faces, epsilon)
+            l0s.append(norms['l0'])
+            l1s.append(norms['l1'])
+            l2s.append(norms['l2'])
+            linfs.append(norms['linf'])
+            psnrs.append(norms['psnr'])
+            ssims.append(calc_ssim(prot_faces, orig_faces, data_range=1, size_average=True).detach().cpu().numpy().item())
+            lpipses.append(lpips_evaluator(prot_faces * 2 - 1, orig_faces * 2 - 1).mean().detach().cpu().numpy().item())
+    mean_l0 = np.mean(l0s).item()
+    max_l0 = max(l0s)
+    min_l0 = min(l0s)
+    mean_l1 = np.mean(l1s).item()
+    max_l1 = max(l1s)
+    min_l1 = min(l1s)
+    mean_l2 = np.mean(l2s).item()
+    max_l2 = max(l2s)
+    min_l2 = min(l2s)
+    mean_linf = np.mean(linfs).item() * 255
+    max_linf = max(linfs) * 255
+    min_linf = min(linfs) * 255
+    mean_ssim = np.mean(ssims).item()
+    max_ssim = max(ssims)
+    min_ssim = min(ssims)
+    mean_psnr = np.mean(psnrs).item()
+    max_psnr = max(psnrs)
+    min_psnr = min(psnrs)
+    mean_lpips = np.mean(lpipses).item()
+    max_lpips = max(lpipses)
+    min_lpips = min(lpipses)
+    fr_results = {}
+    del l0s, l1s, l2s, linfs, psnrs, ssims, lpipses
+    complete_del()
+    for fr in frs:
+        protected_features = fr(protected_faces)
+        orig_features = fr(original_faces)
+        fr_results[fr.model_name] = prot_eval(orig_features=orig_features,
+                                             protected_features=protected_features,
+                                             face_db=build_facedb(face_db_path, fr.model_name, device),
+                                             dist_func='cosine',
+                                             query_portion=query_portion,
+                                             device=device,
+                                             verbose=verbose)
+    return {
+        'prot_results': fr_results,
+        'l0': mean_l0,
+        'l0_max': max_l0,
+        'l0_min': min_l0,
+        'l1': mean_l1,
+        'l1_max': max_l1,
+        'l1_min': min_l1,
+        'l2': mean_l2,
+        'l2_max': max_l2,
+        'l2_min': min_l2,
+        'linf': mean_linf,
+        'linf_max': max_linf,
+        'linf_min': min_linf,
+        'ssim': mean_ssim,
+        'ssim_max': max_ssim,
+        'ssim_min': min_ssim,
+        'psnr': mean_psnr,
+        'psnr_max': max_psnr,
+        'psnr_min': min_psnr, 
+        'lpips': mean_lpips,
+        'lpips_max': max_lpips,
+        'lpips_min': min_lpips
+    }
+
 def compression_eval(compression_methods: List[str], 
                     compression_cfgs: Dict[str, Dict[str, Any]],
                     three_d: bool, 
@@ -577,7 +769,7 @@ def compression_eval(compression_methods: List[str],
                     device: torch.device, 
                     bin_mask: bool, 
                     epsilon: float, 
-                    masks: np.ndarray, 
+                    masks: torch.Tensor, 
                     query_portion: float = 0.5) -> Dict[str, Dict[str, float]]:
     """
     Evaluate the masks' robustness against different compression methods.
@@ -592,15 +784,15 @@ def compression_eval(compression_methods: List[str],
         device (torch.device): The device to use for computation.
         bin_mask (bool): Whether to use binary masks.
         epsilon (float): The maximum perturbation value.
-        masks (np.ndarray): The masks to apply. Shape: (B, 3, H, W). Range: [-epsilon, epsilon]. dtype: np.float32.
+        masks (torch.Tensor): The masks to apply. Shape: (B, 3, H, W). Range: [-epsilon, epsilon]. dtype: torch.float32.
         query_portion (float): The portion of the test data to use as queries.
 
     Returns:
         Dict[str, Dict[str, float]]: A dictionary containing the evaluation results for each compression method.
         Each method's results include '1a', '1b', '2a', '2b'.
     """
-    
-    tensor_masks = torch.tensor(masks, dtype=torch.float32, device=device)
+
+    tensor_masks = masks.clone()
     prot_res = {}
     for method in compression_methods:
         img_cnt = 0
@@ -624,20 +816,20 @@ def compression_eval(compression_methods: List[str],
             img_cnt += img_num
             orig_features.append(fr(compressed_orig_faces).cpu())
             protected_features.append(fr(compressed_protected_faces).cpu())
-            for prot_img, orig_img in zip(protected_faces, orig_faces):
+            """for prot_img, orig_img in zip(protected_faces, orig_faces):
                 prot_img = prot_img.unsqueeze(0)
-                orig_img = orig_img.unsqueeze(0)
+                orig_img = orig_img.unsqueeze(0)"""
         del orig_faces, protected_faces, perturbations
         complete_del()
         orig_features = torch.cat(orig_features, dim=0).to(device)
         protected_features = torch.cat(protected_features, dim=0).to(device)
 
         prot_res[method] = prot_eval(orig_features=orig_features,
-                                        protected_features=protected_features,
-                                        face_db=face_db[method],
-                                        dist_func='cosine',
-                                        query_portion=query_portion,
-                                        device=device)
+                                    protected_features=protected_features,
+                                    face_db=face_db[method],
+                                    dist_func='cosine',
+                                    query_portion=query_portion,
+                                    device=device)
     return prot_res
 
 def visualize_mask(

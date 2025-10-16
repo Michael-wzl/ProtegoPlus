@@ -2,12 +2,13 @@ import os
 from typing import List, Dict, Tuple, Optional, Any
 from math import ceil
 from itertools import product as product
+import zipfile
 
 import torch
 from torchvision.ops.boxes import nms
 from torchvision import transforms
+import gdown
 
-from .FacialRecognition import download
 from FD_DB.Retinaface.net import *
 from FD_DB.MTCNN.mtcnn import MTCNN
 from . import BASE_PATH
@@ -18,6 +19,30 @@ MTCNN_HOME = os.path.join(FD_DB_PATH, 'MTCNN')
 
 LANDMARK_POOL = ['mobilenet_retinaface_widerface', 'resnet50_retinaface_widerface', 'mtcnn']
 DETECTION_ONLY_POOL = []
+
+def download(path: str, url: str) -> None:
+    """
+    A crude download util function, only tailoreed for the scenarios this project meets. 
+
+    Args:
+        path (str): The local desired path of the weight file
+        url (str): The URL of the file to download.
+    """
+    folder = "/".join(path.split("/")[:-1])+'/'
+    if not os.path.exists(path):
+        print(f"Weight {path} does not exist. Downloading it from {url}")
+        if "uc?id" in url:
+            file_id = url.split("uc?id=")[-1]
+            downloaded_f = gdown.download(id=file_id, output=folder, quiet=False)
+        elif "view?usp=sharing" in url:
+            downloaded_f = gdown.download(url=url, output=folder, fuzzy=True, quiet=False)
+        if downloaded_f.endswith(".zip"):
+            with zipfile.ZipFile(downloaded_f, 'r') as zip_ref:
+                zip_ref.extractall(folder)
+            os.remove(downloaded_f)
+        elif downloaded_f != path:
+            os.rename(downloaded_f, path)
+    return
 
 @torch.no_grad()
 class FD(object):
@@ -118,7 +143,7 @@ class MTCNN_Wrapper(object):
             #print(bbox.shape, ldmk.shape)
             x1, y1, x2, y2, score = bbox[0], bbox[1], bbox[2], bbox[3], bbox[4]
             x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
-            ldmk = [int(x) for x in ldmk]
+            ldmk = [x for x in ldmk]
             dets.append((x1, y1, x2, y2, score, ldmk))
         return dets
 
@@ -243,7 +268,7 @@ class Retinaface(object):
         for i in range(box.shape[0]):
             b = box[i]
             score = conf[i].item()
-            ldmks[i] = [int(x) for x in ldmks[i]]
+            ldmks[i] = [x for x in ldmks[i]]
             dets.append((int(b[0].item()), int(b[1].item()), int(b[2].item()), int(b[3].item()), score, ldmks[i].tolist()))
         return dets
 

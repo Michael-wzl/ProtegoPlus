@@ -14,9 +14,7 @@ if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = False
 from omegaconf import OmegaConf
 
-from protego.protego_train import train_protego_mask
-from protego.protego_train_lpips import train_protego_mask_lpips
-from protego.chameleon_train import train_chameleon_mask
+from protego.protego_train_robust import train_protego_mask_robust
 from protego.run_exp import run
 from protego.FacialRecognition import BASIC_POOL, SPECIAL_POOL
 from protego import BASE_PATH
@@ -47,17 +45,17 @@ if __name__ == "__main__":
         # Training configs
         'three_d': True,
         'epoch_num': 100,  
-        'batch_size' : 4, 
+        'batch_size' : 4,  
         'epsilon' : 16 / 255., 
         'min_ssim' : 0.95, 
         'learning_rate' : 0.01 * (16 / 255.), # 0.01 * (16 / 255.)
         'mask_size' : 224, 
         'mask_random_seed': 114, 
         'bin_mask': True, # Whether to use binary mask. If True, the perturbation will be restricted to the face area. 
-        'train_fr_names': [n for n in BASIC_POOL if n != 'ir50_adaface_casia'] + ['partfvit_cosface_nosl_webface'],  
+        'train_fr_names': [n for n in BASIC_POOL if n != 'ir50_adaface_casia'],
 
         # Eval configs
-        'mask_name': ['default', 'univ_mask.npy'], 
+        'mask_name': ['default', 'frpair0_mask0_univ_mask.npy'], 
         'eval_db': 'face_scrub',
         'eval_fr_names': ['ir50_adaface_casia'],
         'save_univ_mask': True, 
@@ -65,11 +63,13 @@ if __name__ == "__main__":
         'query_portion': 0.5,
         'vis_eval': True, 
         'lpips_backbone': "vgg", 
-        'end2end_eval': False, 
+        'end2end_eval': True, 
         'resize_face': True, 
+        'jpeg': False, 
         'eval_compression': False, # Whether to evaluate the compression of the mask.
-        'eval_compression_methods': ['gaussian', 'median', 'jpeg', 'resize'], # The compression methods to evaluate.
+        'eval_compression_methods': ['none', 'gaussian', 'median', 'jpeg', 'resize', 'quantize', 'vid_codec'], # The compression methods to evaluate.
         'compression_cfgs' : {
+            'none': {}, 
             # Gaussian Filter
             'gaussian': {
                 'kernel_size': 9, 
@@ -85,14 +85,49 @@ if __name__ == "__main__":
             }, 
             # Resize
             'resize': {
-                'resz_percentage': 0.4,  # Resize the image to 50% of its original size
+                'resz_percentage': 0.4,
                 'mode': 'bicubic'
+            }, 
+            'quantize': {
+                'precision': 'uint8'
+            }, 
+            'vid_codec': {
+                'codec': 'h264',
+                'crf': 32,
+                'preset': 'faster'
+            }
+        },
+        'train_compression_method': ['gaussian', 'median', 'jpeg', 'quantize', 'resize'],
+        'train_compression_cfgs' : {
+            # Gaussian Filter
+            'gaussian': {
+                'kernel_size': 9, 
+                'sigma': 2.0
+            }, 
+            # Median Filter
+            'median': {
+                'kernel_size': 9
+            }, 
+            'resize': {
+                'resz_percentage': 0.4,
+                'mode': 'bicubic'
+            },
+            # JPEG Compression
+            'jpeg': {
+                'quality': 70
+            }, 
+            # Quantize
+            'quantize': {
+                'precision': 'uint8',
+                'diff_method': 'ste'
             }
         }
     }
     ####################################################################################################################
     # Run
     ####################################################################################################################
+    for method, kwargs in configs['train_compression_cfgs'].items():
+        kwargs['differentiable'] = True
     cfgs = OmegaConf.create(configs)
     cfgs.exp_name = args.exp_name if '--exp_name' in sys.argv else cfgs.exp_name
     cfgs.device = args.device if '--device' in sys.argv else cfgs.device
@@ -114,6 +149,5 @@ if __name__ == "__main__":
             indices = torch.randperm(len(imgs), generator=rand_gen).tolist()
             imgs = [imgs[i] for i in indices]
         data[protectee] = {'train': imgs[:train_num], 'eval': imgs[train_num:]}
-    run(cfgs, mode='train', data=data, train=train_protego_mask)
-    #run(cfgs, mode='train', data=data, train=train_protego_mask_lpips)
-    #run(cfgs, mode='train', data=data, train=train_chameleon_mask)
+    #run(cfgs, mode='train', data=data, train=train_protego_mask_robust)
+    run(cfgs, mode='eval', data=data)

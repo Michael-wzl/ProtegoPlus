@@ -86,9 +86,12 @@ conda install requests=2.32.3 -y
 conda install termcolor=3.1.0 -y
 conda install ipython=8.18.1 -y
 conda install ipykernel -y
-pip install einops # For ViT, can be ommitted if not using ViT
-pip install thop # For ViT, can be ommitted if not using ViT
+pip install einops 
+pip install thop
 pip install lpips
+pip install kornia
+pip install av
+conda install -c conda-forge ffmpeg -y
 cd ..
 echo "All packages installed successfully!"
 

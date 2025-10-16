@@ -39,25 +39,25 @@ if __name__ == "__main__":
         # Training data
         'uv_gen_align_ldmk': False, 
         'uv_gen_batch': 8, 
-        'need_cropping': False, 
+        'need_cropping': True, 
         'fd_name': 'mtcnn', 
-        'crop_loosen': 1., 
+        'crop_loosen': 0.9, 
         'shuffle': False, 
 
         # Training configs
         'three_d': True,
         'epoch_num': 100,  
-        'batch_size' : 4, 
+        'batch_size' : 4,  
         'epsilon' : 16 / 255., 
         'min_ssim' : 0.95, 
         'learning_rate' : 0.01 * (16 / 255.), # 0.01 * (16 / 255.)
         'mask_size' : 224, 
         'mask_random_seed': 114, 
         'bin_mask': True, # Whether to use binary mask. If True, the perturbation will be restricted to the face area. 
-        'train_fr_names': [n for n in BASIC_POOL if n != 'ir50_adaface_casia'] + ['partfvit_cosface_nosl_webface'],  
+        'train_fr_names': [n for n in BASIC_POOL if n != 'ir50_adaface_casia'], 
 
         # Eval configs
-        'mask_name': ['default', 'univ_mask.npy'], 
+        'mask_name': ['all_sides', 'univ_mask.npy'], 
         'eval_db': 'face_scrub',
         'eval_fr_names': ['ir50_adaface_casia'],
         'save_univ_mask': True, 
@@ -67,6 +67,7 @@ if __name__ == "__main__":
         'lpips_backbone': "vgg", 
         'end2end_eval': False, 
         'resize_face': True, 
+        'jpeg': False,
         'eval_compression': False, # Whether to evaluate the compression of the mask.
         'eval_compression_methods': ['gaussian', 'median', 'jpeg', 'resize'], # The compression methods to evaluate.
         'compression_cfgs' : {
@@ -100,20 +101,30 @@ if __name__ == "__main__":
 
     train_portion = 0.6
     shuffle_data = False
-    train_data_path = os.path.join(BASE_PATH, 'face_db', 'face_scrub')
-    protectees = sorted([name for name in os.listdir(train_data_path) if not name.startswith(('.', '_'))])
+    front_data_path = os.path.join(BASE_PATH, 'face_db', 'BC_front')
+    left_data_path = os.path.join(BASE_PATH, 'face_db', 'BC_left')
+    right_data_path = os.path.join(BASE_PATH, 'face_db', 'BC_right')
+    protectees = ["Bradley_Cooper"]
     data = {}
     for protectee in protectees:
-        protectee_path = os.path.join(train_data_path, protectee)
-        imgs = [os.path.join(protectee_path, img_name) for img_name in os.listdir(protectee_path) if img_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')) and not img_name.startswith(('.', '_'))]
-        train_num = math.floor(len(imgs) * train_portion)
-        eval_num = len(imgs) - train_num
-        if shuffle_data:
-            rand_gen = torch.Generator()
-            rand_gen.manual_seed(cfgs.global_random_seed)
-            indices = torch.randperm(len(imgs), generator=rand_gen).tolist()
-            imgs = [imgs[i] for i in indices]
-        data[protectee] = {'train': imgs[:train_num], 'eval': imgs[train_num:]}
-    run(cfgs, mode='train', data=data, train=train_protego_mask)
-    #run(cfgs, mode='train', data=data, train=train_protego_mask_lpips)
-    #run(cfgs, mode='train', data=data, train=train_chameleon_mask)
+        front_imgs = [os.path.join(front_data_path, img_name) for img_name in os.listdir(front_data_path) if img_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')) and not img_name.startswith(('.', '_'))]
+        left_imgs = [os.path.join(left_data_path, img_name) for img_name in os.listdir(left_data_path) if img_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')) and not img_name.startswith(('.', '_'))]
+        right_imgs = [os.path.join(right_data_path, img_name) for img_name in os.listdir(right_data_path) if img_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')) and not img_name.startswith(('.', '_'))]
+        
+        front_train_num = math.floor(len(front_imgs) * train_portion)
+        front_eval_num = len(front_imgs) - front_train_num
+        left_train_num = math.floor(len(left_imgs) * train_portion)
+        left_eval_num = len(left_imgs) - left_train_num
+        right_train_num = math.floor(len(right_imgs) * train_portion)
+        right_eval_num = len(right_imgs) - right_train_num
+        """data[protectee] = {'train': front_imgs[:front_train_num], 
+                           'eval': front_imgs[front_train_num:]}"""
+        """data[protectee] = {'train': left_imgs[:left_train_num], 
+                           'eval': left_imgs[left_train_num:]}"""
+        """data[protectee] = {'train': right_imgs[:right_train_num], 
+                           'eval': right_imgs[right_train_num:]}"""
+        data[protectee] = {'train': right_imgs[:right_train_num] + left_imgs[:left_train_num] + front_imgs[:front_train_num],
+                           'eval': right_imgs[right_train_num:] + left_imgs[left_train_num:] + front_imgs[front_train_num:]}
+        #data[protectee] = {'eval': right_imgs[right_train_num:] + left_imgs[left_train_num:] + front_imgs[front_train_num:]}
+    #run(cfgs, mode='train', data=data, train=train_protego_mask)
+    run(cfgs, mode='eval', data=data)

@@ -15,10 +15,8 @@ if torch.cuda.is_available():
 from omegaconf import OmegaConf
 
 from protego.protego_train import train_protego_mask
-from protego.protego_train_lpips import train_protego_mask_lpips
-from protego.chameleon_train import train_chameleon_mask
 from protego.run_exp import run
-from protego.FacialRecognition import BASIC_POOL, SPECIAL_POOL
+from protego.FacialRecognition import BASIC_POOL, SPECIAL_POOL, FINETUNE_POOL
 from protego import BASE_PATH
 
 if __name__ == "__main__":
@@ -41,32 +39,32 @@ if __name__ == "__main__":
         'uv_gen_batch': 8, 
         'need_cropping': False, 
         'fd_name': 'mtcnn', 
-        'crop_loosen': 1., 
         'shuffle': False, 
 
         # Training configs
         'three_d': True,
         'epoch_num': 100,  
-        'batch_size' : 4, 
+        'batch_size' : 4,  
         'epsilon' : 16 / 255., 
         'min_ssim' : 0.95, 
         'learning_rate' : 0.01 * (16 / 255.), # 0.01 * (16 / 255.)
         'mask_size' : 224, 
         'mask_random_seed': 114, 
         'bin_mask': True, # Whether to use binary mask. If True, the perturbation will be restricted to the face area. 
-        'train_fr_names': [n for n in BASIC_POOL if n != 'ir50_adaface_casia'] + ['partfvit_cosface_nosl_webface'],  
+        'train_fr_names': [n for n in BASIC_POOL if n != 'ir50_adaface_casia'], 
 
         # Eval configs
-        'mask_name': ['default', 'univ_mask.npy'], 
+        'mask_name': ['default', 'frpair0_mask0_univ_mask.npy'],
         'eval_db': 'face_scrub',
-        'eval_fr_names': ['ir50_adaface_casia'],
-        'save_univ_mask': True, 
-        'visualize_interval': 10,
+        'eval_fr_names': ['facevit_arcface_singled8h1_webface', 'facevit_arcface_crossd8h1_webface', 'facevit_arcface_crossd8h2_webface'],
+        'save_univ_mask': False, 
+        'visualize_interval': -1,
         'query_portion': 0.5,
         'vis_eval': True, 
         'lpips_backbone': "vgg", 
         'end2end_eval': False, 
         'resize_face': True, 
+        'jpeg': False,
         'eval_compression': False, # Whether to evaluate the compression of the mask.
         'eval_compression_methods': ['gaussian', 'median', 'jpeg', 'resize'], # The compression methods to evaluate.
         'compression_cfgs' : {
@@ -114,6 +112,5 @@ if __name__ == "__main__":
             indices = torch.randperm(len(imgs), generator=rand_gen).tolist()
             imgs = [imgs[i] for i in indices]
         data[protectee] = {'train': imgs[:train_num], 'eval': imgs[train_num:]}
-    run(cfgs, mode='train', data=data, train=train_protego_mask)
-    #run(cfgs, mode='train', data=data, train=train_protego_mask_lpips)
-    #run(cfgs, mode='train', data=data, train=train_chameleon_mask)
+    run(cfgs, mode='eval', data=data)
+    
