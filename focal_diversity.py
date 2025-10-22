@@ -12,6 +12,20 @@ from protego.FacialRecognition import FR, BASIC_POOL, VIT_FAMILY, SPECIAL_POOL
 from protego.utils import retrieve, load_imgs
 
 def get_negative_samples(face_db: Dict[str, Tuple[List[str], torch.Tensor]], fr: FR, device: torch.device, query_portion: float = 0.5) -> List[str]:
+    """
+    Identify negative samples (failures) for a given FR model using a strict Top-1 failure rule.
+
+    Definition used here (closer to standard FR evaluation and the paper's wording):
+    - A query is counted as a negative sample if its Top-1 retrieval does NOT match the true identity.
+
+    Implementation details:
+    - For each identity (name), we split its images into queries (first portion) and gallery (remaining portion).
+    - The database is the union of all other identities' features plus the gallery portion of the same identity.
+    - We run retrieval with topk=1; retrieve() returns the fraction of correct matches among top-k.
+      With k=1, accu ∈ {0.0, 1.0}. We mark it negative iff accu == 0.0.
+
+    Returns a list of image paths (identifiers) that are negatives for this model.
+    """
     features_dict = {}
     imgs_paths = []
     for name, (imgs_path, imgs) in face_db.items():
@@ -33,9 +47,17 @@ def get_negative_samples(face_db: Dict[str, Tuple[List[str], torch.Tensor]], fr:
         query_labels = [name] * query_nums
         db = torch.cat([db, features[query_nums:].to(device)], dim=0)
         db_labels.extend([name] * (feature_nums - query_nums))
-        res = retrieve(db=db, db_labels=db_labels, queries=queries, query_labels=query_labels, dist_func='cosine', topk=5)
+        # Strict Top-1 failure: topk=1 and negative if accu == 0.0
+        res = retrieve(
+            db=db,
+            db_labels=db_labels,
+            queries=queries,
+            query_labels=query_labels,
+            dist_func='cosine',
+            topk=1,
+        )
         for idx, accu in enumerate(res):
-            if accu < 3 / 5:
+            if accu == 0.0:  # Top-1 miss
                 negative_samples.append(imgs_paths[start_idx + idx])
         start_idx += feature_nums
     return negative_samples
@@ -54,11 +76,14 @@ def cal_focal_diversity(ensemble: List[str], model_results: Dict[str, List[str]]
       Let agreement_on_x = (# of other models that also fail on x) / max(1, S-1).
     - Define λ_focal(T; F) as the average agreement_on_x over x in N_F.
       Intuition: λ measures agreement (correlation) of failures; 1-λ is disagreement/diversity.
-    - The focal diversity is d_focal(T) = (1/S) * sum_{F in T} [1 - λ_focal(T; F)].
+        - The focal diversity is d_focal(T) = average_{F in T with |N_F|>0} [1 - λ_focal(T; F)].
+            That is, we average only over focal members that have at least one negative sample
+            (S_eff), which avoids biasing the score downward when a very strong model has no
+            negatives and provides no evidence about failure correlation.
 
     Edge cases
-    - If a focal model has no negative samples, we contribute 0 to diversity for that focal
-      (no evidence to estimate correlation; avoids inflating diversity).
+        - If a focal model has no negative samples, we skip it from the averaging set
+            (no evidence to estimate correlation). If none have negatives, return 0.
     - If ensemble size S <= 1, return 0.0.
 
     Returns
@@ -74,10 +99,11 @@ def cal_focal_diversity(ensemble: List[str], model_results: Dict[str, List[str]]
         neg_sets[m] = set(model_results.get(m, []))
 
     total_div = 0.0
+    eff_count = 0  # number of focal members with at least one negative
     for focal in ensemble:
         negatives = neg_sets.get(focal, set())
         if not negatives:
-            # No negatives for focal model -> contribute 0
+            # No negatives for focal model -> skip from averaging
             continue
 
         agree_sum = 0.0
@@ -96,9 +122,12 @@ def cal_focal_diversity(ensemble: List[str], model_results: Dict[str, List[str]]
         # λ_focal: average agreement across focal's negatives
         lambda_focal = agree_sum / max(1, len(negatives))
         total_div += (1.0 - lambda_focal)
+        eff_count += 1
 
-    # Average across focal members (divide by S per paper)
-    d_focal = total_div / S
+    # Average across focal members that have negatives (S_eff). If none, return 0.
+    if eff_count == 0:
+        return 0.0
+    d_focal = total_div / eff_count
     # Clamp to [0,1] for numerical hygiene
     d_focal = max(0.0, min(1.0, d_focal))
     return d_focal

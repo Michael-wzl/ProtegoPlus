@@ -66,8 +66,10 @@ if __name__ == "__main__":
         'vis_eval': True, 
         'lpips_backbone': "vgg", 
         'end2end_eval': False, 
+        'strict_crop': True, 
         'resize_face': True, 
         'jpeg': False,
+        'smoothing': 'none', # Options: 'gaussian', 'median', 'none'
         'eval_compression': False, # Whether to evaluate the compression of the mask.
         'eval_compression_methods': ['gaussian', 'median', 'jpeg', 'resize'], # The compression methods to evaluate.
         'compression_cfgs' : {

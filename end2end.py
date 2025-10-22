@@ -6,6 +6,8 @@ warnings.filterwarnings("ignore", category=UserWarning, module="requests")
 import argparse
 import sys
 import math
+import random
+import itertools
 import copy
 
 import torch
@@ -15,8 +17,9 @@ if torch.cuda.is_available():
 from omegaconf import OmegaConf
 
 from protego.protego_train_robust import train_protego_mask_robust
+from protego.protego_train import train_protego_mask
 from protego.run_exp import run
-from protego.FacialRecognition import BASIC_POOL, SPECIAL_POOL
+from protego.FacialRecognition import BASIC_POOL, SPECIAL_POOL, VIT_FAMILY
 from protego import BASE_PATH
 
 if __name__ == "__main__":
@@ -55,17 +58,19 @@ if __name__ == "__main__":
         'train_fr_names': [n for n in BASIC_POOL if n != 'ir50_adaface_casia'],
 
         # Eval configs
-        'mask_name': ['default', 'frpair0_mask0_univ_mask.npy'], 
+        'mask_name': ['end2end_resize', 'univ_mask.npy'], 
         'eval_db': 'face_scrub',
         'eval_fr_names': ['ir50_adaface_casia'],
         'save_univ_mask': True, 
-        'visualize_interval': 10,
+        'visualize_interval': 30,
         'query_portion': 0.5,
         'vis_eval': True, 
         'lpips_backbone': "vgg", 
-        'end2end_eval': True, 
-        'resize_face': True, 
-        'jpeg': False, 
+        'end2end_eval': False, 
+        'strict_crop': True, 
+        'resize_face': False, 
+        'jpeg': True, 
+        'smoothing': 'gaussian', # Options: 'gaussian', 'median', 'none'
         'eval_compression': False, # Whether to evaluate the compression of the mask.
         'eval_compression_methods': ['none', 'gaussian', 'median', 'jpeg', 'resize', 'quantize', 'vid_codec'], # The compression methods to evaluate.
         'compression_cfgs' : {
@@ -149,5 +154,28 @@ if __name__ == "__main__":
             indices = torch.randperm(len(imgs), generator=rand_gen).tolist()
             imgs = [imgs[i] for i in indices]
         data[protectee] = {'train': imgs[:train_num], 'eval': imgs[train_num:]}
+    """usage_portion = 1.
+    shuffle_data = False
+    eval_data_path = os.path.join(BASE_PATH, 'face_db', 'fs_uncropped')
+    protectees = sorted([name for name in os.listdir(eval_data_path) if not name.startswith(('.', '_'))])
+    data = {}
+    for protectee in protectees:
+        protectee_path = os.path.join(eval_data_path, protectee)
+        imgs = [os.path.join(protectee_path, img_name) for img_name in os.listdir(protectee_path) if img_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')) and not img_name.startswith(('.', '_'))]
+        if shuffle_data:
+            rand_gen = torch.Generator()
+            rand_gen.manual_seed(cfgs.global_random_seed)
+            indices = torch.randperm(len(imgs), generator=rand_gen).tolist()
+            imgs = [imgs[i] for i in indices]
+        usage_num = math.floor(len(imgs) * usage_portion)
+        data[protectee] = {'eval': imgs[:usage_num]}"""
     #run(cfgs, mode='train', data=data, train=train_protego_mask_robust)
-    run(cfgs, mode='eval', data=data)
+    exp_name_prefix = cfgs.exp_name
+    train_fr_combinations = list(itertools.combinations(cfgs.train_fr_names, 4))
+    #combs_to_use = random.Random(cfgs.global_random_seed).sample(train_fr_combinations, k=min(20, len(train_fr_combinations)))
+    combs_to_use = train_fr_combinations[3 * len(train_fr_combinations) // 4 : ]
+    for comb in combs_to_use:
+        cfgs.train_fr_names = list(comb)
+        cfgs.exp_name = exp_name_prefix + '_' + '_'.join(cfgs.train_fr_names)
+        run(cfgs, mode='train', data=data, train=train_protego_mask)
+    #run(cfgs, mode='eval', data=data)

@@ -16,7 +16,7 @@ from omegaconf import OmegaConf
 
 from protego.protego_train import train_protego_mask
 from protego.run_exp import run
-from protego.FacialRecognition import BASIC_POOL, SPECIAL_POOL, FINETUNE_POOL
+from protego.FacialRecognition import BASIC_POOL, SPECIAL_POOL, FINETUNE_POOL, VIT_FAMILY
 from protego import BASE_PATH
 
 if __name__ == "__main__":
@@ -54,17 +54,19 @@ if __name__ == "__main__":
         'train_fr_names': [n for n in BASIC_POOL if n != 'ir50_adaface_casia'], 
 
         # Eval configs
-        'mask_name': ['default', 'frpair0_mask0_univ_mask.npy'],
+        'mask_name': ['random9frs', 'univ_mask.npy'],
         'eval_db': 'face_scrub',
-        'eval_fr_names': ['facevit_arcface_singled8h1_webface', 'facevit_arcface_crossd8h1_webface', 'facevit_arcface_crossd8h2_webface'],
+        'eval_fr_names': VIT_FAMILY+['ir50_adaface_casia'],
         'save_univ_mask': False, 
         'visualize_interval': -1,
         'query_portion': 0.5,
         'vis_eval': True, 
         'lpips_backbone': "vgg", 
         'end2end_eval': False, 
+        'strict_crop': True, 
         'resize_face': True, 
         'jpeg': False,
+        'smoothing': 'none', # Options: 'gaussian', 'median', 'none'
         'eval_compression': False, # Whether to evaluate the compression of the mask.
         'eval_compression_methods': ['gaussian', 'median', 'jpeg', 'resize'], # The compression methods to evaluate.
         'compression_cfgs' : {
