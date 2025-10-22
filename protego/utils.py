@@ -59,20 +59,22 @@ def crop_face(img: torch.Tensor,
             min_h: int = 20, 
             min_w: int = 20, 
             crop_loosen: float = 1.0,
-            verbose: bool = True) -> Tuple[Optional[torch.Tensor], Optional[Tuple[int, int, int, int]]]:
+            verbose: bool = True, 
+            strict: bool = False) -> Tuple[Optional[torch.Tensor], Optional[Tuple[int, int, int, int]]]:
     """
     Crop the face from the image using MTCNN.
 
     Args:
-        img (torch.Tensor): FloatTensor. Range [0, 255], RGB, [3, H, W]
+        img (torch.Tensor): FloatTensor. Range [0, 255] or [0, 1]. Shape [3, H, W]. RGB.
         conf_thresh (float): Confidence threshold for face detection. Not passed to the detection model, used only in post-processing.
         min_h (int): Minimum height of the detected face.
         min_w (int): Minimum width of the detected face.
         crop_loosen (float): Factor to loosen the crop around the detected face. 1.0 means no change.
         verbose (bool): Whether to print warnings.
+        strict (bool): Whether to return None, None if warnings are raised.
 
     Returns:
-        Tuple[torch.Tensor, Tuple[int, int, int, int]]: The cropped face (Range [0, 255], RGB, [3, H, W]) and its position in the original image.
+        Tuple[torch.Tensor, Tuple[int, int, int, int]]: The cropped face (Range is the same as input, RGB, [3, H, W]) and its position in the original image.
     """
     det_res = detector(img.float())
     if det_res is None:
@@ -109,6 +111,8 @@ def crop_face(img: torch.Tensor,
         if full_size == width:
             if verbose:
                 print(f"Warning: Original Image too narrow, cannot crop face properly.")
+            if strict:
+                return None, None
             square_x1, square_x2 = 0, width
             half_size = width // 2
             square_y1 = center_y - half_size
@@ -116,6 +120,8 @@ def crop_face(img: torch.Tensor,
         elif full_size == height:
             if verbose:
                 print(f"Warning: Original Image too short, cannot crop face properly.")
+            if strict:
+                return None, None
             square_y1, square_y2 = 0, height
             half_size = height // 2
             square_x1 = center_x - half_size
@@ -129,9 +135,18 @@ def crop_face(img: torch.Tensor,
 
         cropped_face = img[:, square_y1:square_y2, square_x1:square_x2].clone()
         position = (square_x1, square_y1, square_x2, square_y2)
+    if cropped_face is None or position is None:
+        if verbose:
+            print(f"Warning: No valid face detected that meets the criteria. conf_thresh: {conf_thresh}, min_h: {min_h}, min_w: {min_w}.")
+        return None, None
     if cropped_face.shape[1] < min_h or cropped_face.shape[2] < min_w:
         if verbose:
             print(f"Warning: No valid face detected that meets the criteria. min_h: {min_h}, min_w: {min_w}.")
+        return None, None
+    x1, y1, x2, y2 = position
+    if x1 < 0 or y1 < 0 or x2 > width or y2 > height:
+        if verbose:
+            print(f"Warning: Cropped face goes out of image boundary. Image size: ({width}, {height}). Cropped position: ({x1}, {y1}, {x2}, {y2}).")
         return None, None
     return cropped_face, position
 
@@ -608,8 +623,10 @@ def eval_mask_end2end(three_d: bool,
                     epsilon: float, 
                     mask: torch.Tensor,
                     query_portion: float = 0.5, 
+                    strict_crop: bool = False, 
                     resize_face: bool = True, 
                     jpeg: bool = False, 
+                    smoothing: str = None, 
                     vis_eval: bool = True, 
                     lpips_backbone: str = "vgg", 
                     verbose: bool = False) -> Dict[str, Union[float, Dict[str, float]]]:
@@ -630,6 +647,7 @@ def eval_mask_end2end(three_d: bool,
         resize_face (bool): Whether to resize the face or the mask.
         jpeg (bool): Whether to apply JPEG compression with quality 75 to the protected images before feature extraction.
         query_portion (float): The portion of the test data to use as queries.
+        strict_crop (bool): The strict mode that will be passed to protego.utils.crop_face function.
         vis_eval (bool): Whether to visualize the evaluation results.
         lpips_backbone (str): The backbone to use for LPIPS calculation. 'vgg', 'alex', or 'squeeze'.
         verbose (bool): Whether to print the evaluation results.
@@ -639,11 +657,14 @@ def eval_mask_end2end(three_d: bool,
     """
     resized_faces, faces, positions = [], [], []
     for img_idx, raw_img in tqdm.tqdm(enumerate(test_raw_imgs), desc="Detecting and cropping faces from raw images"):
-        raw_img = raw_img.to(device)
-        face, pos = crop_face(raw_img.mul(255.), fd, verbose=False)
+        raw_img = raw_img.to(device).squeeze(0)
+        #print(raw_img.shape, raw_img.min(), raw_img.max())
+        face, pos = crop_face(raw_img, fd, verbose=False, strict=strict_crop)
         if face is None or pos is None:
-            print(f"Warning: No valid face detected in image {img_idx}. Skipping.")
+            print(f"Warning: No valid face detected in image {img_idx} (strict = {strict_crop}). Skipping.")
             continue
+        #print(face.shape, face.min(), face.max(), face.mean())
+        #face.div_(255.)
         pos = list(pos)
         pos.append(img_idx)
         resized_faces.append(F.interpolate(face.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False).squeeze(0))
@@ -651,37 +672,51 @@ def eval_mask_end2end(three_d: bool,
             faces.append(face)
         positions.append(pos)
     resized_faces = torch.stack(resized_faces, dim=0)
-    uvs, bin_masks = uvmapper.forward(imgs=resized_faces)
+    uvs, bin_masks, _ = uvmapper.forward(imgs=resized_faces)
     perts = torch.clamp(F.grid_sample(mask.repeat(resized_faces.shape[0], 1, 1, 1), uvs, mode='bilinear', align_corners=True), -epsilon, epsilon) if three_d else mask.repeat(faces.shape[0], 1, 1, 1)
     if bin_mask:
         perts = perts * bin_masks
     protected_imgs = []
     for pos_idx, pos in enumerate(positions):
         x1, y1, x2, y2, img_idx = pos
-        protected_img = test_raw_imgs[img_idx].clone()
+        protected_img = test_raw_imgs[img_idx].clone().squeeze(0)
+        #print(protected_img.shape, protected_img.min(), protected_img.max())
         if resize_face:
             protected_face = torch.clamp(resized_faces[pos_idx] + perts[pos_idx], 0, 1)
             protected_face = F.interpolate(protected_face.unsqueeze(0), size=(y2 - y1, x2 - x1), mode='bilinear', align_corners=False).squeeze(0)
-            protected_img[y1:y2, x1:x2] = protected_face
+            protected_img[:, y1:y2, x1:x2] = protected_face
         else:
             pert = F.interpolate(perts[[pos_idx]], size=(y2 - y1, x2 - x1), mode='bilinear', align_corners=False).squeeze(0)
-            print(pert.max(), pert.min())
+            #print(pert.max(), pert.min())
             protected_face = torch.clamp(faces[pos_idx] + pert, 0, 1)
-            protected_img[y1:y2, x1:x2] = protected_face
-        protected_imgs.append(protected_img)
+            protected_img[:, y1:y2, x1:x2] = protected_face
+        protected_img = protected_img.unsqueeze(0)
+        if jpeg:
+            protected_img = compress(protected_img, method='jpeg', quality=75)
+        protected_img = protected_img.mul(255.).to(torch.uint8).float().div(255.)
+        if smoothing is not None:
+            if smoothing == 'gaussian':
+                protected_img = compress(protected_img, method='gaussian', kernel_size = 3, sigma=0.7)
+            elif smoothing == 'median':
+                protected_img = compress(protected_img, method='median', kernel_size = 3)
+            else:
+                raise ValueError(f"Unsupported smoothing method: {smoothing}. Use 'gaussian', 'median', or None.")
+        protected_imgs.append(protected_img.squeeze(0))
     del faces, perts, uvs, bin_masks
     complete_del()
-    protected_imgs = torch.stack(protected_imgs, dim=0)
-    if jpeg:
-        protected_imgs = compress(protected_imgs, method='jpeg', quality=75)
-    protected_imgs = protected_imgs.mul(255.).to(torch.uint8).float().div(255.)
+    #protected_imgs = torch.stack(protected_imgs, dim=0)
     protected_faces = []
     have_face = []
     for img_idx, protected_img in tqdm.tqdm(enumerate(protected_imgs), desc="Re-detecting and cropping faces from protected images"):
-        protected_face, pos = crop_face(protected_img.mul(255.), fd, verbose=False)
+        #print(protected_img.shape, protected_img.min(), protected_img.max())
+        # Visualization for debugging
+        #_protected_img_vis = (protected_img.detach().permute(1, 2, 0).mul(255.).cpu().numpy().astype(np.uint8))
+        #cv2.imwrite(f"/home/zlwang/ProtegoPlus/trash/protected_img/protected_img_{img_idx}.png", cv2.cvtColor(_protected_img_vis, cv2.COLOR_RGB2BGR))
+        protected_face, pos = crop_face(protected_img, fd, verbose=False, strict=strict_crop)
         if protected_face is None or pos is None:
-            print(f"Warning: No valid face detected in protected image {img_idx}. Skipping.")
+            print(f"Warning: No valid face detected in protected image {img_idx} (strict = {strict_crop}). Skipping.")
             continue
+        #protected_face.div_(255.)
         protected_faces.append(F.interpolate(protected_face.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False).squeeze(0))
         have_face.append(img_idx)
     protected_faces = torch.stack(protected_faces, dim=0)

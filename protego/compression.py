@@ -75,17 +75,34 @@ def jpeg(imgs:torch.Tensor, quality:int=80, differentiable:bool=False) -> torch.
     Differentiable JPEG compression adopted from https://github.com/mlomnitz/DiffJPEG. 
 
     Args:
-        imgs (Tensor): Input image tensor of shape [B, C, H, W], Range: [0, 1]
+        imgs (Tensor): Input image tensor of shape [B, C, H, W], Range: [0, 1]. Note that if H or W is not divisible by 16, the image will be padded to the next multiple of 16
         quality (int): Quality factor for JPEG compression
         differentiable (bool): If True, use differentiable rounding
 
     Returns:
         Tensor: Compressed image tensor of shape [B, C, H, W]
+        Note: Despite the padding, the output tensor will have the same shape as the input tensor by direct cutting. 
     """
     device = imgs.device
     B, C, H, W = imgs.shape
-    compressor = DiffJPEG(height=H, width=W, differentiable=differentiable, quality=quality).to(device)
-    return compressor.forward(imgs)
+    # Pad to multiples of 16 so that after 2x chroma subsampling (Cb/Cr at H/2, W/2),
+    # dimensions are still divisible by 8 for 8x8 block splitting.
+    block = 16
+    pad_h = (block - (H % block)) % block
+    pad_w = (block - (W % block)) % block
+
+    if pad_h != 0 or pad_w != 0:
+        # Pad to multiples of 8 for DiffJPEG block operations
+        # F.pad expects pads in (left, right, top, bottom)
+        imgs_padded = F.pad(imgs, (0, pad_w, 0, pad_h), mode='reflect')
+        H_pad, W_pad = H + pad_h, W + pad_w
+        compressor = DiffJPEG(height=H_pad, width=W_pad, differentiable=differentiable, quality=quality).to(device)
+        out = compressor.forward(imgs_padded)
+        # Crop back to original size
+        return out[:, :, :H, :W]
+    else:
+        compressor = DiffJPEG(height=H, width=W, differentiable=differentiable, quality=quality).to(device)
+        return compressor.forward(imgs)
 
 def resize(imgs: torch.Tensor, resz_percentage: float, mode: str, differentiable: bool = False) -> torch.Tensor:
     """

@@ -78,7 +78,7 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
         # Enumerate through all the protectees
         ####################################################################################################################
         print("\n"+"#" * 50)
-        print(f"Protectee: {protectee}")
+        print(f"Protectee: {protectee} ({protectee_idx+1}/{len(data)})")
         print("#" * 50+ "\n")
         res_save_path = os.path.join(res_path, protectee)
         os.makedirs(res_save_path, exist_ok=False)
@@ -159,18 +159,18 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
             univ_mask = load_mask(mask_path=mask_path, device=device)
         
         with torch.no_grad():
-            if cfgs.need_cropping:
+            if cfgs.need_cropping or cfgs.end2end_eval:
                 eval_imgs = load_imgs(img_paths=protectee_data['eval'], img_sz=-1, usage_portion=1.0, drange=255, device=device)
                 _cropped_imgs = []
-                _no_face = []
+                no_face = []
                 for img_idx, img in enumerate(eval_imgs):
                     cropped_face, pos = crop_face(img=img.squeeze(0), detector=fd, crop_loosen=cfgs.crop_loosen, verbose=True)
                     if cropped_face is None or pos is None:
-                        _no_face.append(img_idx)
+                        no_face.append(img_idx)
                         continue
                     _cropped_imgs.append(F.interpolate(cropped_face.unsqueeze(0), size=(cfgs.mask_size, cfgs.mask_size), mode='bilinear', align_corners=True, antialias=True).squeeze(0))
-                print(f"{len(_no_face)} eval images do not have detectable faces and are ignored:")
-                for idx in _no_face:
+                print(f"{len(no_face)} eval images do not have detectable faces and are ignored:")
+                for idx in no_face:
                     print(f"{protectee_data['eval'][idx]}")
                 eval_imgs = torch.stack(_cropped_imgs, dim=0)
                 del _cropped_imgs
@@ -250,18 +250,21 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
             if cfgs.end2end_eval:
                 end2end_res = eval_mask_end2end(
                                 three_d=cfgs.three_d,
-                                test_raw_imgs=load_imgs(img_paths=protectee_data['eval'], img_sz=-1, usage_portion=1.0, drange=1, device=device), 
+                                test_raw_imgs=load_imgs(img_paths=[f for f_idx, f in enumerate(protectee_data['eval']) if f_idx not in no_face], 
+                                                        img_sz=-1, usage_portion=1.0, drange=1, device=device), 
                                 face_db_path=noise_db_path, 
                                 frs=eval_frs,
-                                fd=fd if cfgs.need_cropping else FD(model_name="resnet50_retinaface_widerface", device=device),
+                                fd=fd,
                                 uvmapper=uvmapper, 
                                 device=device,
                                 bin_mask=cfgs.bin_mask,
                                 epsilon=cfgs.epsilon,
                                 mask=univ_mask.clone(), 
                                 query_portion=cfgs.query_portion,
+                                strict_crop=cfgs.strict_crop,
                                 resize_face=cfgs.resize_face, 
                                 jpeg=cfgs.jpeg, 
+                                smoothing=None if cfgs.smoothing.lower() == 'none' else cfgs.smoothing.lower(),
                                 vis_eval=False, 
                                 lpips_backbone=cfgs.lpips_backbone,
                                 verbose=True)
