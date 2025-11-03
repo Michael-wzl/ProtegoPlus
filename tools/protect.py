@@ -11,7 +11,7 @@ from omegaconf import OmegaConf
 
 from protego.FacialRecognition import FR
 from protego.FaceDetection import FD
-from protego.utils import load_imgs, load_mask, build_facedb, build_compressed_face_db, crop_face, complete_del, visualize_mask, eval_masks, compression_eval
+from protego.utils import load_imgs, load_mask
 from protego import BASE_PATH
 from protego.UVMapping import UVGenerator
 

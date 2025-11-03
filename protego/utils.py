@@ -175,7 +175,7 @@ def img2tensor(img: np.ndarray, drange: int = 1, device: torch.device = torch.de
         device (torch.device): The device to store the tensor. Default is CPU.
 
     Returns:
-        torch.Tensor: The converted tensor. Shape: (1, 3, H, W), dtype: float32., range [0, 1].
+        torch.Tensor: The converted tensor. Shape: (1, 3, H, W), dtype: float32., range [0, 1] or [0, 255], depending on drange.
     """
     img_tensor = torch.tensor(img, dtype=torch.float32, device=device).to(device)
     img_tensor = img_tensor.permute(2, 0, 1)
@@ -199,7 +199,7 @@ def load_mask(mask_path: str, device: torch.device = torch.device("cpu")) -> tor
 
 def load_imgs(base_dir: str = None, img_paths: Optional[List[str]] = None, img_sz: int = 224, usage_portion: float = 1.0, drange: int = 1, device: torch.device = torch.device('cpu'), return_img_paths: bool = False) -> Union[torch.Tensor, List[torch.Tensor], Tuple[torch.Tensor, List[str]], Tuple[List[torch.Tensor], List[str]]]:
     """
-    Read images from a directory and convert them to tensors.
+    Read images from a directory and convert them to tensors. If base dir is given, only imgs in ['jpg', 'png', 'jpeg', 'bmp'] format and NOT starting with '.' or '_' will be read.
 
     Args:
         base_dir (str): The directory containing the images.
@@ -212,13 +212,13 @@ def load_imgs(base_dir: str = None, img_paths: Optional[List[str]] = None, img_s
 
     Returns:
         Union[torch.Tensor, List[torch.Tensor], Tuple[torch.Tensor, List[str]], Tuple[List[torch.Tensor], List[str]]]: The tensor of the images. Shape [B, 3, img_sz, img_sz]. RGB, range [0, 1], dtype: float32.
-        A list of tensors if img_sz is -1. Will also return the list of image paths if return_img_paths is True.
+        A list of tensors with shape [1, 3, H, W] if img_sz is -1. Will also return the list of image paths if return_img_paths is True.
     """
     img_tensors = []
     valid_img_paths = []
     if base_dir is not None and img_paths is None:
         img_num = len(os.listdir(base_dir))
-        imgs_names = sorted([os.path.join(base_dir, name) for name in os.listdir(base_dir) if name.endswith(('.jpg', '.png', '.jpeg', '.bmp')) and not (name.startswith('.') or name.startswith('_'))])
+        imgs_names = sorted([os.path.join(base_dir, name) for name in os.listdir(base_dir) if name.lower().endswith(('.jpg', '.png', '.jpeg', '.bmp')) and not (name.startswith('.') or name.startswith('_'))])
     elif img_paths is not None and base_dir is None:
         img_num = len(img_paths)
         imgs_names = img_paths
@@ -243,13 +243,39 @@ def load_imgs(base_dir: str = None, img_paths: Optional[List[str]] = None, img_s
         return imgs, valid_img_paths
     return imgs
 
-def build_facedb(db_path: str, fr_name: str, device: torch.device) -> Dict[str, torch.Tensor]:
+def preextract_features(base_path: str, fr: FR, device: torch.device, save_name: str, compression_cfg: Optional[Tuple[str, Dict[str, Any]]] = None) -> None:
+    """
+    A unified gateway to pre-extract features for all images in the given directory.
+
+    Args:
+        base_path (str): The path to the database directory.
+        fr (FR): The facial recognition model.
+        device (torch.device): The device to use for computation.
+        save_name (str): The name to save the extracted features.
+        compression_cfg (Optional[Dict[str, Any]]): The compression configuration. If provided, the images will be compressed before feature extraction.
+    """
+    usable_imgs = os.path.join(base_path, 'imgs_list.txt')
+    if os.path.exists(usable_imgs):
+        with open(usable_imgs, 'r') as f:
+            img_names = [os.path.join(base_path, line.strip()) for line in f.readlines() if line.strip()]
+        imgs = load_imgs(img_paths=img_names, img_sz=224, usage_portion=1., drange=1, device=device)
+    else:
+        imgs, img_names = load_imgs(base_dir=base_path, img_sz=224, usage_portion=1., drange=1, device=device, return_img_paths=True)
+    if compression_cfg is not None:
+        imgs = compress(imgs=imgs, method=compression_cfg[0], differentiable=False, **compression_cfg[1])
+    torch.save(fr(imgs).cpu(), os.path.join(base_path, save_name))
+    if not os.path.exists(usable_imgs):
+        with open(usable_imgs, 'w') as f:
+            for img_name in img_names:
+                f.write(os.path.relpath(img_name, base_path) + '\n')
+
+def build_facedb(db_path: str, fr: Union[str, FR], device: torch.device) -> Dict[str, torch.Tensor]:
     """
     Build a database of features from the images in the given directory. Folders starting with '.' or '_' will be ignored.
 
     Args:
         db_path (str): The path to the database directory.
-        fr_name (str): The name of the facial recognition model to use.
+        fr (Union[str, FR]): The facial recognition model or the name of the model to use.
         device (torch.device): The device to use for computation.
 
     Returns:
@@ -257,28 +283,28 @@ def build_facedb(db_path: str, fr_name: str, device: torch.device) -> Dict[str, 
     """
     db = {}
     names = sorted([n for n in os.listdir(db_path) if not n.startswith(('.', '_'))])
-    if not os.path.exists(os.path.join(db_path, names[0], f'{fr_name}.pt')):
-        print(f"Features not pre-extracted for {fr_name}, extracting now...")
-        fr = FR(model_name=fr_name, device=device)
+    fr_name = fr if isinstance(fr, str) else fr.model_name
+    fr_model = None
     for name in names:
         personal_path = os.path.join(db_path, name)
         feature_path = os.path.join(personal_path, f'{fr_name}.pt')
         if not os.path.exists(feature_path):
-            imgs_tensors = load_imgs(personal_path, img_sz=224, usage_portion=1., drange=1, device=device)
-            features = fr(imgs_tensors).cpu()
-            torch.save(features, feature_path)
-        else:
-            features = torch.load(os.path.join(personal_path, f'{fr_name}.pt'))
+            if isinstance(fr, str) and fr_model is None:
+                fr_model = FR(model_name=fr, device=device)
+            elif isinstance(fr, FR) and fr_model is None:
+                fr_model = fr
+            preextract_features(base_path=personal_path, fr=fr_model, device=device, save_name=f'{fr_name}.pt')
+        features = torch.load(os.path.join(personal_path, f'{fr_name}.pt'))
         db[name] = features.to(device)
     return db
 
-def build_compressed_face_db(db_path: str, fr: FR, device: torch.device, compression_methods: List[str], compression_cfgs: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, torch.Tensor]]:
+def build_compressed_face_db(db_path: str, fr: Union[str, FR], device: torch.device, compression_methods: List[str], compression_cfgs: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, torch.Tensor]]:
     """
     Build a database of features from the compressed images in the given directory.
 
     Args:
         db_path (str): The path to the database directory.
-        fr_name (str): The name of the facial recognition model to use.
+        fr (Union[str, FR]): The facial recognition model or the name of the model to use.
         device (torch.device): The device to use for computation.
         compression_methods (List[str]): The list of compression methods to use.
         compression_cfgs (Dict[str, Dict[str, Any]]): The configurations for each compression method.
@@ -289,6 +315,8 @@ def build_compressed_face_db(db_path: str, fr: FR, device: torch.device, compres
     with torch.no_grad():
         db = {compression_method: {} for compression_method in compression_methods}
         pbar = tqdm.tqdm(os.listdir(db_path), desc="Building compressed face database")
+        fr_name = fr if isinstance(fr, str) else fr.model_name
+        fr_model = None
         for name in pbar:
             if name.startswith('.') or name.startswith('_'):
                 continue
@@ -297,21 +325,15 @@ def build_compressed_face_db(db_path: str, fr: FR, device: torch.device, compres
                 cfgs_str = ''
                 for k, v in compression_cfgs[method].items():
                     cfgs_str += f"_{k}_{v}"
-                f_name = os.path.join(personal_path, f"{fr.model_name}_{method}{cfgs_str}.pt")
+                f_name = os.path.join(personal_path, f"{fr_name}_{method}{cfgs_str}.pt")
                 if not os.path.exists(f_name):
-                    img_tensors = load_imgs(personal_path, img_sz=224, usage_portion=1.0, drange=1)
-                    tmp_dl = DataLoader(img_tensors, batch_size=32, shuffle=False)
-                    compressed_features = []
-                    for imgs in tqdm.tqdm(tmp_dl, desc=f"Compressing and extracting features for {name} with {method} under the setting of {compression_cfgs[method]}"):
-                        imgs = imgs.to(device)
-                        compressed_features.append(fr(compress(imgs = imgs, method = method, differentiable = False, **compression_cfgs[method])).cpu())
-                    compressed_features = torch.cat(compressed_features, dim=0)
-                    db[method][name] = compressed_features.to(device)
-                    with filelock.FileLock(f_name + ".lock"):
-                        torch.save(compressed_features, f_name)
-                else:
-                    db[method][name] = torch.load(f_name, map_location=device, weights_only=False)
-                    db[method][name] = db[method][name].to(device)
+                    if isinstance(fr, str) and fr_model is None:
+                        fr_model = FR(model_name=fr, device=device)
+                    elif isinstance(fr, FR) and fr_model is None:
+                        fr_model = fr
+                    preextract_features(base_path=personal_path, fr=fr_model, device=device, save_name=f_name, compression_cfg=(method, compression_cfgs[method]))
+                db[method][name] = torch.load(f_name, map_location=device, weights_only=False)
+                db[method][name] = db[method][name].to(device)
     return db
         
 def cal_norms(x: torch.Tensor, y: torch.Tensor, epsilon: float) -> Dict[str, float]:
@@ -338,7 +360,7 @@ def cal_norms(x: torch.Tensor, y: torch.Tensor, epsilon: float) -> Dict[str, flo
         psnr = 20 * np.log10(1.0 / np.sqrt(mse)).item() if mse > 0 else float('inf')
         return {'l0': l0, 'l1': l1, 'l2': l2, 'linf': linf, 'psnr': psnr}
 
-def retrieve(db: torch.Tensor, db_labels: List[str], queries: torch.Tensor, query_labels: List[str], dist_func: str, topk: int) -> List[float]:
+def retrieve(db: torch.Tensor, db_labels: List[str], queries: torch.Tensor, query_labels: List[str], dist_func: str, topk: int, sorted_retrieval: bool = True, return_retrieved_idxs: bool = False) -> Union[List[float], Tuple[List[float], List[List[int]]]]:
     """
     Assume k queries in total. For each query, determine how many of the top-k retrievals are correct. 
 
@@ -349,26 +371,35 @@ def retrieve(db: torch.Tensor, db_labels: List[str], queries: torch.Tensor, quer
         query_labels (List[str]): The labels of the query features.
         dist_func (str): The distance function to use. Either 'cosine' or 'euclidean'.
         topk (int): The number of top retrievals to consider.
+        sorted_retrieval (bool): Whether to sort the retrievals by the similarity/distance score. (Monotonically decreasing in terms of similarity, conceptually, whether cosine or euclidean distance)
+        return_retrieved_idxs (bool): Whether to return the retrieved indexes in the db Tensor.
 
     Returns:
-        List[float]: For each query, how many of the top-k retrievals are correct.
+        Union[List[float], Tuple[List[float], List[List[int]]]]:
+         - List[float]: For each query, how many of the top-k retrievals are correct. If return_retrieved_idxs is False.
+         - Tuple[List[float], List[List[int]]]: For each query, how many of the top-k retrievals are correct, and the retrieved indexes in the db Tensor. If return_retrieved_idxs is True.
     """
     #k = queries.shape[0] # The number of queries
     k = topk
     if dist_func == 'cosine':
         matrix = torch.matmul(F.normalize(queries, p=2, dim=1), F.normalize(db, p=2, dim=1).T)
-        db_matches_idxs = matrix.topk(k, dim=1, largest=True, sorted=False)[1]
+        db_matches_idxs = matrix.topk(k, dim=1, largest=True, sorted=sorted_retrieval)[1]
     elif dist_func == 'euclidean':
         matrix = torch.cdist(queries, db, p=2)
-        db_matches_idxs = matrix.topk(k, dim=1, largest=False, sorted=False)[1]
+        db_matches_idxs = matrix.topk(k, dim=1, largest=False, sorted=sorted_retrieval)[1]
     else:
         raise ValueError(f"Unsupported distance function: {dist_func}. Use 'cosine' or 'euclidean'.")
     accus = []
+    retrieved_idxs = []
     for i in range(queries.shape[0]):
         query_label = query_labels[i]
         db_matches = db_matches_idxs[i]
         correct_count = sum(1 for idx in db_matches if db_labels[idx] == query_label)
         accus.append(correct_count / k)
+        if return_retrieved_idxs:
+            retrieved_idxs.append(db_matches.detach().cpu().numpy().tolist())
+    if return_retrieved_idxs:
+        return accus, retrieved_idxs
     return accus
 
 def prot_eval(orig_features: torch.Tensor, protected_features: torch.Tensor, face_db: Dict[str, torch.Tensor], dist_func: str, query_portion: float, device: torch.device, verbose: bool = False) -> Dict[str, float]:

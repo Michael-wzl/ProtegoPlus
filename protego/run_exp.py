@@ -206,7 +206,7 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
                         use_bin_mask=cfgs.bin_mask,
                         three_d=cfgs.three_d)
             for eval_fr in eval_frs:
-                noise_db = build_facedb(db_path=noise_db_path, fr_name=eval_fr.model_name, device=device)
+                noise_db = build_facedb(db_path=noise_db_path, fr=eval_fr, device=device)
                 res = eval_masks(
                     three_d=cfgs.three_d,
                     test_data=eval_dl, 

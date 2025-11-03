@@ -54,9 +54,9 @@ if __name__ == "__main__":
         'train_fr_names': [n for n in BASIC_POOL if n != 'ir50_adaface_casia'], 
 
         # Eval configs
-        'mask_name': ['random9frs', 'univ_mask.npy'],
+        'mask_name': ['default', 'frpair0_mask0_univ_mask.npy'],
         'eval_db': 'face_scrub',
-        'eval_fr_names': VIT_FAMILY+['ir50_adaface_casia'],
+        'eval_fr_names': ['ir50_magface_ms1mv2'],
         'save_univ_mask': False, 
         'visualize_interval': -1,
         'query_portion': 0.5,

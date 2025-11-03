@@ -220,9 +220,9 @@ def ana_res(eval_name: str, compression: bool, use_lpips: bool, end2end_mode: bo
 if __name__ == "__main__":
     ######################### Configuration #########################
     # Under results/eval/<eval_name>/ there should be multiple user subfolders, each containing yaml results.
-    eval_name = "random9frs"  # subfolder name with evaluation results
+    eval_name = "vit_family_default_mask_eval"  # subfolder name with evaluation results
     compression = False  # set True if compression_res_{fr}.yaml exists
-    need_lpips = True    # collect LPIPS only in non end2end mode
+    need_lpips = False    # collect LPIPS only in non end2end mode
     end2end = False       # enable end2end mode: read end2end_eval_res_{fr}.yaml
     #################################################################
     ana_res(eval_name, compression, need_lpips, end2end_mode=end2end)
