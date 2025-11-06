@@ -109,7 +109,7 @@ cd ../../..
 
 echo "Downloading Processed FaceScrub Dataset..."
 cd face_db
-gdown --fuzzy "https://drive.google.com/file/d/1H-exPEZXCKb8hP7SBcYSLeqWxhtrrbma/view?usp=sharing"
+gdown --fuzzy "https://drive.google.com/file/d/1_Mfq10d1fdDJGDum4QKZphHNXEc8LT0J/view?usp=sharing" # TODO Updated link, with imgs_list.txt
 unzip face_scrub_preprocessed.zip
 rm -f face_scrub_preprocessed.zip
 
@@ -127,5 +127,16 @@ gdown --fuzzy "https://drive.google.com/file/d/1Ckh9To_EoUhcwooJ6con3DGtkVyVdGSu
 unzip pretrained_ppts_protego.zip
 rm -f pretrained_ppts_protego.zip
 cd ..
+
+# ! Temporary for Focal Diversity Analysis
+echo "Downloading Evaluation Results for Focal Diversity Analysis..."
+cd results && mkdir eval && cd eval
+gdown --fuzzy "https://drive.google.com/file/d/1hTd8DGrDdEAZvZNMMxfAiTK2Sn5IipwX/view?usp=sharing" # len3ensemble.zip
+unzip len3ensemble.zip
+rm -f len3ensemble.zip
+gdown --fuzzy "https://drive.google.com/file/d/1m1r7mlxOHSiGbIkg7VFWrystUCjfLSqH/view?usp=sharing" # len4ensemble.zip
+unzip len4ensemble.zip
+rm -f len4ensemble.zip
+cd ../..
 
 echo "ALL DONE!!!"

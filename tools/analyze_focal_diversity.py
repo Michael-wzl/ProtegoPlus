@@ -1,4 +1,5 @@
 import os
+import argparse
 
 import yaml
 import matplotlib.pyplot as plt
@@ -9,14 +10,19 @@ from protego import BASE_PATH
 
 if __name__ == "__main__":
     ######################### Configuration #########################
-    recall_res_base_path = f"{BASE_PATH}/results/eval/len3ensemble"
+    parser = argparse.ArgumentParser(description="Analyze focal diversity results")
+    parser.add_argument('--exp_name', type=str, default="default_exp", help='experiment name for loading results')
+    parser.add_argument('--fd_fname', type=str, default="focal_diversities_ens3_performance_only.yaml", help='focal diversity filename')
+    parser.add_argument('--ensemble_size', type=int, default=3, help='ensemble size used in focal diversity computation')
+    args = parser.parse_args()
+    recall_res_base_path = f"{BASE_PATH}/results/eval/len{args.ensemble_size}ensemble"
     baseline_recall_dict = {
         'ir50_adaface_casia': 0.1670, 
         'ir50_magface_ms1mv2': 0.2356, 
         'transfaces_arcface_ms1mv2': 0.4843
     }
-    focal_diversity_base_path = f"{BASE_PATH}/results/focal_diversity"
-    focal_diversity_fname = "focal_diversities_ens3_performance_only.yaml"
+    focal_diversity_base_path = f"{BASE_PATH}/results/focal_diversity/{args.exp_name}"
+    focal_diversity_fname = args.fd_fname
     plot_save_path = focal_diversity_base_path
     #################################################################
     metrics = ['1a', '2a', '2b']

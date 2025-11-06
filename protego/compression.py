@@ -145,9 +145,9 @@ def quantize(imgs: torch.Tensor, precision: str, diff_method: str = 'ste', diffe
     """
     device = imgs.device
     if precision == 'float16':
-        return imgs.to(torch.float16)
+        return imgs.to(torch.float16).float()
     elif not differentiable and precision == 'uint8':
-        return imgs.mul(255).to(torch.uint8)
+        return imgs.mul(255).to(torch.uint8).float()
     elif differentiable and precision == 'uint8':
         imgs_scaled = imgs.mul(255.)
         """if diff_method in ['noise']:

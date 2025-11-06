@@ -148,7 +148,7 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
                         bin_mask=train_dl.dataset[img_idx][2].to(device),
                         univ_mask=univ_mask.clone().to(device),
                         epsilon=cfgs.epsilon,
-                        save_path=os.path.join(res_save_path, f"train_vis_{img_idx}.png"),
+                        save_path=os.path.join(res_save_path, f"train_vis_{img_idx}.jpg"),
                         use_bin_mask=cfgs.bin_mask,
                         three_d=cfgs.three_d)
             del train_dl
@@ -202,7 +202,7 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
                         bin_mask=eval_dl.dataset[img_idx][2].to(device),
                         univ_mask=univ_mask.clone().to(device),
                         epsilon=cfgs.epsilon,
-                        save_path=os.path.join(res_save_path, f"eval_vis_{img_idx}.png"),
+                        save_path=os.path.join(res_save_path, f"eval_vis_{img_idx}.jpg"),
                         use_bin_mask=cfgs.bin_mask,
                         three_d=cfgs.three_d)
             for eval_fr in eval_frs:

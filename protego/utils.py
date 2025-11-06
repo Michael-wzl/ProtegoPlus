@@ -263,7 +263,10 @@ def preextract_features(base_path: str, fr: FR, device: torch.device, save_name:
         imgs, img_names = load_imgs(base_dir=base_path, img_sz=224, usage_portion=1., drange=1, device=device, return_img_paths=True)
     if compression_cfg is not None:
         imgs = compress(imgs=imgs, method=compression_cfg[0], differentiable=False, **compression_cfg[1])
-    torch.save(fr(imgs).cpu(), os.path.join(base_path, save_name))
+    lockfile = filelock.FileLock(os.path.join(base_path, f"{save_name}.lock"))
+    with lockfile:
+        torch.save(fr(imgs).detach().cpu(), os.path.join(base_path, save_name))
+    lockfile.release()
     if not os.path.exists(usable_imgs):
         with open(usable_imgs, 'w') as f:
             for img_name in img_names:
@@ -288,13 +291,16 @@ def build_facedb(db_path: str, fr: Union[str, FR], device: torch.device) -> Dict
     for name in names:
         personal_path = os.path.join(db_path, name)
         feature_path = os.path.join(personal_path, f'{fr_name}.pt')
-        if not os.path.exists(feature_path):
+        try:
+            features = torch.load(feature_path, map_location=device, weights_only=False)
+        except Exception as e:
+            print(f"{fr_name} features of {name} not found or failed to load. (Re)Extracting features. Error: {e}")
             if isinstance(fr, str) and fr_model is None:
                 fr_model = FR(model_name=fr, device=device)
             elif isinstance(fr, FR) and fr_model is None:
                 fr_model = fr
             preextract_features(base_path=personal_path, fr=fr_model, device=device, save_name=f'{fr_name}.pt')
-        features = torch.load(os.path.join(personal_path, f'{fr_name}.pt'))
+            features = torch.load(feature_path, map_location=device, weights_only=False)
         db[name] = features.to(device)
     return db
 
@@ -326,13 +332,16 @@ def build_compressed_face_db(db_path: str, fr: Union[str, FR], device: torch.dev
                 for k, v in compression_cfgs[method].items():
                     cfgs_str += f"_{k}_{v}"
                 f_name = os.path.join(personal_path, f"{fr_name}_{method}{cfgs_str}.pt")
-                if not os.path.exists(f_name):
+                try:
+                    db[method][name] = torch.load(f_name, map_location=device, weights_only=False)
+                except Exception as e:
+                    print(f"{fr_name} features for {name} with compression {method} not found or failed to load. (Re)Extracting features. Error: {e}")
                     if isinstance(fr, str) and fr_model is None:
                         fr_model = FR(model_name=fr, device=device)
                     elif isinstance(fr, FR) and fr_model is None:
                         fr_model = fr
-                    preextract_features(base_path=personal_path, fr=fr_model, device=device, save_name=f_name, compression_cfg=(method, compression_cfgs[method]))
-                db[method][name] = torch.load(f_name, map_location=device, weights_only=False)
+                    preextract_features(base_path=personal_path, fr=fr_model, device=device, save_name=os.path.basename(f_name), compression_cfg=(method, compression_cfgs[method]))
+                    db[method][name] = torch.load(f_name, map_location=device, weights_only=False)
                 db[method][name] = db[method][name].to(device)
     return db
         

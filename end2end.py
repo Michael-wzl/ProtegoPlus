@@ -169,15 +169,15 @@ if __name__ == "__main__":
             imgs = [imgs[i] for i in indices]
         usage_num = math.floor(len(imgs) * usage_portion)
         data[protectee] = {'eval': imgs[:usage_num]}"""
-    #run(cfgs, mode='train', data=data, train=train_protego_mask_robust)
+    #run(cfgs, mode='train', data=data, train=train_protego_mask)
     exp_name_prefix = cfgs.exp_name
-    train_fr_combinations = list(itertools.combinations(cfgs.train_fr_names, 1))
+    train_fr_combinations = list(itertools.combinations(cfgs.train_fr_names, 4))
     #combs_to_use = train_fr_combinations
     #combs_to_use = random.Random(cfgs.global_random_seed).sample(train_fr_combinations, k=min(20, len(train_fr_combinations)))
-    combs_to_use = train_fr_combinations[:1 * len(train_fr_combinations)//3]
+    combs_to_use = train_fr_combinations[4*len(train_fr_combinations)//5:]
     for comb in combs_to_use:
         cfgs.train_fr_names = list(comb)
-        cfgs.exp_name = exp_name_prefix + '_' + '_'.join(cfgs.train_fr_names)
-        cfgs.mask_name = [f'len1ensemble/{cfgs.exp_name}', 'univ_mask.npy']
-        run(cfgs, mode='train', data=data, train=train_protego_mask)
-        #run(cfgs, mode='eval', data=data)
+        cfgs.exp_name = exp_name_prefix + '_' + '-'.join(cfgs.train_fr_names)
+        cfgs.mask_name = [f'len4ensemble/{cfgs.exp_name.replace("-", "_")}', 'univ_mask.npy']
+        #run(cfgs, mode='train', data=data, train=train_protego_mask)
+        run(cfgs, mode='eval', data=data)

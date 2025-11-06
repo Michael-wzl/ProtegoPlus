@@ -293,9 +293,9 @@ class FR(object):
         if images.max() >= 2 and self.drange == 1:
             rescaled_images = images.float() / 255.
         elif images.max() >= 2 and self.drange == 255:
-            rescaled_images = images
+            rescaled_images = images.float()
         elif images.max() < 2 and self.drange == 1:
-            rescaled_images = images
+            rescaled_images = images.float()
         elif images.max() < 2 and self.drange == 255:
             rescaled_images = images.float() * 255.
         preprocessed = torch.stack([self.preprocess_method(img) for img in rescaled_images])

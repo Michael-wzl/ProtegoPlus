@@ -15,7 +15,7 @@ if __name__ == "__main__":
     device = torch.device('cuda:0')
     mode = 'both' # 'original', 'compressed', 'both'
     face_db_base_paths = [f"{BASE_PATH}/face_db/face_scrub", f"{BASE_PATH}/face_db/face_scrub/_noise_db"]
-    fr_names = [n for n in BASIC_POOL if n != 'ir50_adaface_casia']
+    fr_names = SPECIAL_POOL
     compression_methods = ['none', 'gaussian', 'median', 'jpeg', 'resize', 'quantize', 'vid_codec']
     compression_cfgs = {
         'none': {}, 
@@ -62,6 +62,6 @@ if __name__ == "__main__":
                             cfgs_str = ''
                             for k, v in compression_cfgs[method].items():
                                 cfgs_str += f"_{k}_{v}"
-                            f_name = os.path.join(personal_path, f"{fr_name}_{method}{cfgs_str}.pt")
+                            f_name = f"{fr_name}_{method}{cfgs_str}.pt"
                             preextract_features(base_path=personal_path, fr=fr, device=device, save_name=f_name, compression_cfg=(method, compression_cfgs[method]))
 
