@@ -55,9 +55,8 @@ BASIC_POOL = ['ir50_softmax_casia', 'ir50_cosface_casia',
               'ir50_arcface_casia', 'mobilenet_arcface_casia', 'mobilefacenet_arcface_casia', 
               'ir18_adaface_webface', 'ir50_adaface_ms1mv2', 'ir50_adaface_casia', 'ir50_adaface_webface', 'ir101_adaface_webface']
 VIT_FAMILY = SPECIAL_POOL[4:]
-FINETUNE_POOL = ['ir50_adaface_fsorig', 'ir50_adaface_fsclean', 'ir50_adaface_fsprot20', 
-                 'ir50_adaface_fsprot50', 'ir50_adaface_fsprot80', 'ir50_adaface_fsprot5014frs', 
-                 'ir50_adaface_fsprot50nokmeans']
+FINETUNE_POOL = ['ir50_adaface_fsclean', 
+                 'ir50_adaface_fsprot20cham', 'ir50_adaface_fsprot20protego', 'ir50_adaface_fsprot20opom']
 
 def download(path: str, url: str) -> None:
     """
@@ -220,20 +219,14 @@ class FR(object):
         elif self.model_name == 'facevit_arcface_crossd8h2_webface': # FaceViT (Cross-image attention, depth=8, heads=2) + ArcFace + WebFace2M
             self.fr_model = FaceViT(cross_image_attention=True, depth=8, heads=2, device=self.device)
 
-        elif self.model_name == 'ir50_adaface_fsorig': # Improved ResNet50 + AdaFace + FSOrig
-            self.fr_model = AdaFace(backbone='ir_50_fsorig', device=self.device)
         elif self.model_name == 'ir50_adaface_fsclean': # Improved ResNet50 + AdaFace + FSClean
             self.fr_model = AdaFace(backbone='ir_50_fsclean', device=self.device)
-        elif self.model_name == 'ir50_adaface_fsprot20': # Improved ResNet50 + AdaFace + FSProt20
-            self.fr_model = AdaFace(backbone='ir_50_fsprot20', device=self.device)
-        elif self.model_name == 'ir50_adaface_fsprot50': # Improved ResNet50 + AdaFace + FSProt50
-            self.fr_model = AdaFace(backbone='ir_50_fsprot50', device=self.device)
-        elif self.model_name == 'ir50_adaface_fsprot80': # Improved ResNet50 + AdaFace + FSProt80
-            self.fr_model = AdaFace(backbone='ir_50_fsprot80', device=self.device)
-        elif self.model_name == 'ir50_adaface_fsprot5014frs': # Improved ResNet50 + AdaFace + FSProt50_14FRs
-            self.fr_model = AdaFace(backbone='ir_50_fsprot5014frs', device=self.device)
-        elif self.model_name == 'ir50_adaface_fsprot50nokmeans': # Improved ResNet50 + AdaFace + FSProt50NoKmeans
-            self.fr_model = AdaFace(backbone='ir_50_fsprot50nokmeans', device=self.device)
+        elif self.model_name == 'ir50_adaface_fsprot20cham': # Improved ResNet50 + AdaFace + FSProt20(Chameleon)
+            self.fr_model = AdaFace(backbone='ir_50_fsprot20cham', device=self.device)
+        elif self.model_name == 'ir50_adaface_fsprot20protego': # Improved ResNet50 + AdaFace + FSProt20(Protego)
+            self.fr_model = AdaFace(backbone='ir_50_fsprot20protego', device=self.device)
+        elif self.model_name == 'ir50_adaface_fsprot20opom': # Improved ResNet50 + AdaFace + FSProt20(OPOM)
+            self.fr_model = AdaFace(backbone='ir_50_fsprot20opom', device=self.device)
         else:
             raise ValueError(f"Invalid model name: {self.model_name}")
         
@@ -521,14 +514,11 @@ class AdaFace(object):
             'ir_50_casia': os.path.join(ADAFACE_HOME, 'pretrained/adaface_ir50_casia.ckpt'),
             'ir_50_web': os.path.join(ADAFACE_HOME, 'pretrained/adaface_ir50_webface4m.ckpt'),
             'ir_101_web': os.path.join(ADAFACE_HOME, 'pretrained/adaface_ir101_webface4m.ckpt'),
-            'ir_50_ms1mv2': os.path.join(ADAFACE_HOME, 'pretrained/adaface_ir50_ms1mv2.ckpt'), 
-            'ir_50_fsorig': os.path.join(ADAFACE_HOME, 'pretrained/adaface_ir50_fsorig.ckpt'),
-            'ir_50_fsclean': os.path.join(ADAFACE_HOME, 'pretrained/adaface_ir50_fsclean.ckpt'), 
-            'ir_50_fsprot20': os.path.join(ADAFACE_HOME, 'pretrained/adaface_ir50_fsprot20.ckpt'),
-            'ir_50_fsprot50': os.path.join(ADAFACE_HOME, 'pretrained/adaface_ir50_fsprot50.ckpt'),
-            'ir_50_fsprot80': os.path.join(ADAFACE_HOME, 'pretrained/adaface_ir50_fsprot80.ckpt'),
-            'ir_50_fsprot5014frs': os.path.join(ADAFACE_HOME, 'pretrained/adaface_ir50_fsprot5014frs.ckpt'), 
-            'ir_50_fsprot50nokmeans': os.path.join(ADAFACE_HOME, 'pretrained/adaface_ir50_fsprot50_nokmeans.ckpt')
+            'ir_50_ms1mv2': os.path.join(ADAFACE_HOME, 'pretrained/adaface_ir50_ms1mv2.ckpt'),
+            'ir_50_fsclean': os.path.join(ADAFACE_HOME, 'pretrained/adaface_ir50_fsclean.ckpt'),
+            'ir_50_fsprot20cham': os.path.join(ADAFACE_HOME, 'pretrained/adaface_ir50_fsprot20cham.ckpt'),
+            'ir_50_fsprot20protego': os.path.join(ADAFACE_HOME, 'pretrained/adaface_ir50_fsprot20protego.ckpt'),
+            'ir_50_fsprot20opom': os.path.join(ADAFACE_HOME, 'pretrained/adaface_ir50_fsprot20opom.ckpt'),
         }
         self.url_dict = {
             'ir_18_web': "https://drive.google.com/file/d/1J17_QW1Oq00EhSWObISnhWEYr2NNrg2y/view?usp=sharing",

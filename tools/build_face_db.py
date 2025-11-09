@@ -13,9 +13,9 @@ from protego.FacialRecognition import FR, BASIC_POOL, SPECIAL_POOL, FINETUNE_POO
 if __name__ == "__main__":
     ######################### Configuration #########################
     device = torch.device('cuda:0')
-    mode = 'both' # 'original', 'compressed', 'both'
+    mode = 'original' # 'original', 'compressed', 'both'
     face_db_base_paths = [f"{BASE_PATH}/face_db/face_scrub", f"{BASE_PATH}/face_db/face_scrub/_noise_db"]
-    fr_names = SPECIAL_POOL
+    fr_names =  ['ir50_adaface_fsclean', 'ir50_adaface_fsprot20cham', 'ir50_adaface_fsprot20protego']
     compression_methods = ['none', 'gaussian', 'median', 'jpeg', 'resize', 'quantize', 'vid_codec']
     compression_cfgs = {
         'none': {}, 

@@ -1,173 +1,181 @@
 import os
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="torch")
+warnings.filterwarnings("ignore", category=UserWarning, module="requests")
+from typing import List, Dict, Any
 
 import torch
+if torch.cuda.is_available():
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
 import torch.nn.functional as F
 import numpy as np
 import yaml
 import tqdm
 
 from protego.FacialRecognition import FR
-from protego.utils import load_mask, load_imgs, kmeans, visualize_mask
+from protego.utils import load_mask, build_facedb, load_imgs, kmeans, visualize_mask, get_usable_img_paths
 from protego import BASE_PATH
 from protego.UVMapping import UVGenerator
 
-def cluster_features(features, n_clusters):
-    return kmeans(features, n_clusters, rand_seed=0)
+def cal_purity(preds: np.ndarray, img_paths: List[str]) -> Dict[str, Any]:
+    res_by_label, res_by_cluster = {}, {}
+    for img_idx in range(len(img_paths)):
+        cluster_id = int(preds[img_idx])
+        img_path = img_paths[img_idx]
+        label = img_path.split('/')[-2]
+        if cluster_id not in res_by_cluster:
+            res_by_cluster[cluster_id] = []
+        res_by_cluster[cluster_id].append(img_path)
+        if label not in res_by_label:
+            res_by_label[label] = {}
+            res_by_label[label]['img_num'] = 0
+            res_by_label[label]['labels'] = {}
+        if cluster_id not in res_by_label[label]['labels']:
+            res_by_label[label]['labels'][cluster_id] = 0
+        res_by_label[label]['img_num'] += 1
+        res_by_label[label]['labels'][cluster_id] += 1
+    purities = []
+    for label, v in res_by_label.items():
+        max_cnt = max(v['labels'].values())
+        purity = max_cnt / v['img_num']
+        purities.append(purity)
+    return {
+        'res_by_label': res_by_label,
+        'res_by_cluster': res_by_cluster,
+        'purities': purities,
+        'avg_purity': np.mean(purities)
+    }
+
 
 if __name__ == "__main__":
-    ####################################################################################################################
-    # Configuration
-    ####################################################################################################################
     with torch.no_grad():
-        device = torch.device('cuda:0')
+        ####################################################################################################################
+        # Configuration
+        ####################################################################################################################
+        device = torch.device('cuda:7')
         face_db_name = 'face_scrub'
-        mask_name = ['default', 'frpair0_mask0_univ_mask.npy']
+        mask_name = ['default_cham', 'univ_mask.npy']
         epsilon = 16 / 255.
+        three_d = False
+        bin_mask = False
         fr_name = "ir50_adaface_casia"
         prot_portion = 0.2 # The portion of images to be protected for each protectee.
+        res_save_name = f"{face_db_name}_{mask_name[0]}_{fr_name}_prot{int(prot_portion*100)}.yaml"
         sanity_check = True
-
+        ####################################################################################################################
+        res_save_base_path = os.path.join(BASE_PATH, 'results', 'cluster')
         face_db_base = os.path.join(BASE_PATH, 'face_db', face_db_name)
         noise_db_path = os.path.join(face_db_base, '_noise_db')
         protectee_base_path = face_db_base
         mask_base_path = os.path.join(BASE_PATH, 'experiments', mask_name[0])
 
-        # Init
         fr = FR(model_name=fr_name, device=device)
-        if prot_portion > 0:
+        if prot_portion > 0.:
             smirk_base_path = os.path.join(BASE_PATH, 'smirk')
             smirk_weight_path = os.path.join(smirk_base_path, 'pretrained_models/SMIRK_em1.pt')
             mp_lmk_model_path = os.path.join(smirk_base_path, 'assets/face_landmarker.task')
             uvmapper = UVGenerator(smirk_ckpts_path=smirk_weight_path, smirk_base_path=smirk_base_path, mp_ldmk_model_path=mp_lmk_model_path, device=device)
-
-        persons = 0
-        # Load noise images
+        
+        num_ids = 0
         noise_img_names, noise_features = [], []
-        pbar = tqdm.tqdm(os.listdir(noise_db_path), desc='Loading noise images')
-        for name in pbar:
-            if name.lower().startswith(('.', '_')):
-                continue
-            personal_path = os.path.join(noise_db_path, name)
-            personal_imgs = []
-            for img_name in os.listdir(personal_path):
-                if img_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')) and not img_name.startswith(('.', '_')):
-                    img_path = os.path.join(personal_path, img_name)
-                    personal_imgs.append(os.path.join(personal_path, img_name))
-            orig_imgs = load_imgs(img_paths=personal_imgs, img_sz=224, usage_portion=1.0, drange=1, device=device)
-            noise_features.append(fr(orig_imgs).cpu())
-            noise_img_names.extend(personal_imgs)
-            persons += 1
-        noise_features = torch.cat(noise_features, dim=0)
-
+        # Load noise images
+        noise_db = build_facedb(db_path=noise_db_path, fr=fr, device=device, return_img_paths=True)
+        pbar = tqdm.tqdm(noise_db.items())
+        for name, (features, img_names) in pbar:
+            pbar.set_description(f"Processing noise {name}")
+            num_ids += 1
+            noise_features.append(features)
+            noise_img_names.extend(img_names)
+        noise_features = torch.cat(noise_features, dim=0)  # (N, D)
+        print(f"Loaded {noise_features.shape[0]} noise images from {num_ids} noise IDs.")
+        
         # Load protectee images
         protectee_orig_img_names, protectee_prot_img_names, protectee_orig_features, protectee_prot_features = [], [], [], []
-        pbar = tqdm.tqdm(os.listdir(protectee_base_path), desc='Loading protectee images')
+        pbar = tqdm.tqdm(os.listdir(protectee_base_path))
         for name in pbar:
-            if name.lower().startswith(('.', '_')):
-                continue
+            pbar.set_description(f"Processing protectee {name}")
             personal_path = os.path.join(protectee_base_path, name)
-            personal_imgs = [os.path.join(personal_path, fname) for fname in os.listdir(personal_path) if fname.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')) and not fname.startswith(('.', '_'))]
-            orig_imgs = load_imgs(img_paths=personal_imgs, img_sz=224, usage_portion=1.0, drange=1, device=device)
-            orig_num = int(len(personal_imgs) * (1 - prot_portion))
-            if prot_portion > 0:
-                uvs, bin_masks, _ = uvmapper.forward(orig_imgs, align_ldmks=False, batch_size=16)
-                protectee_mask = load_mask(mask_path=os.path.join(mask_base_path, name, mask_name[1]), device=device)[[0]]
-                perts = torch.clamp(F.grid_sample(protectee_mask.repeat(orig_imgs.shape[0], 1, 1, 1), uvs, align_corners=True, mode='bilinear'), -epsilon, epsilon)* bin_masks
-                prot_imgs = torch.clamp(orig_imgs + perts, 0, 1)
-                protectee_prot_img_names.extend([n+"/prot" for n in personal_imgs[orig_num:]])
-                protectee_prot_features.append(fr(prot_imgs[orig_num:]).cpu())
+            if name.startswith(('.', '_')):
+                print(f"Skip {personal_path}.")
+                continue
+            mask = load_mask(os.path.join(mask_base_path, name, mask_name[1]), device=device)
+            img_names = get_usable_img_paths(personal_path)
+            orig_imgs = load_imgs(img_paths=img_names, img_sz=224, usage_portion=1., drange=1, device=device, return_img_paths=False)
+            num_orig = orig_imgs.shape[0]
+            num_prot = int(prot_portion * num_orig)
+            num_orig -= num_prot
+            if prot_portion > 0.:
+                prot_imgs = orig_imgs[:num_prot]
+                uvs, bin_masks, _ = uvmapper.forward(prot_imgs, align_ldmks=False, batch_size=16)
+                if three_d:
+                    perts = torch.clamp(F.grid_sample(mask.repeat(prot_imgs.shape[0], 1, 1, 1), uvs, align_corners=True, mode='bilinear'), -epsilon, epsilon)
+                else:
+                    perts = torch.clamp(mask.repeat(prot_imgs.shape[0], 1, 1, 1), -epsilon, epsilon)
+                if bin_mask:
+                    perts *= bin_masks
+                prot_imgs = torch.clamp(prot_imgs + perts, 0., 1.)
+                prot_features = fr(prot_imgs)
+                prot_img_names = [img_name+'<prot>' for img_name in img_names[:num_prot]]
+                protectee_prot_img_names.extend(prot_img_names)
+                protectee_prot_features.append(prot_features)
                 if sanity_check:
                     for i in range(len(prot_imgs)):
                         if i % 20 != 0:
                             continue
-                        visualize_mask(orig_imgs[i], 
-                                       uv=uvs[i], 
-                                       bin_mask=bin_masks[i], 
-                                       univ_mask=protectee_mask.clone(), 
-                                       save_path=os.path.join(BASE_PATH, 'results', 'cluster', f'sanity_check_{name}_{i}.png'), 
+                        visualize_mask(orig_img=orig_imgs[i], 
+                                       uv=uvs[i],
+                                       bin_mask=bin_masks[i],
+                                       univ_mask=mask, 
+                                       save_path=os.path.join(res_save_base_path, f'sanity_check_{name}_{i}.jpg'),
                                        epsilon=epsilon, 
-                                       use_bin_mask=True, 
-                                       three_d=True)
-            if orig_num > 0:
-                protectee_orig_img_names.extend(personal_imgs[:orig_num])
-                protectee_orig_features.append(fr(orig_imgs[:orig_num]).cpu())
-            persons += 1
+                                       use_bin_mask=bin_mask, 
+                                       three_d=three_d)
+            num_ids += 1
+            if num_orig <= 0:
+                continue
+            orig_imgs = orig_imgs[num_prot:]
+            orig_features = fr(orig_imgs)
+            orig_img_names = img_names[num_prot:]
+            protectee_orig_img_names.extend(orig_img_names)
+            protectee_orig_features.append(orig_features)
         if len(protectee_orig_features) > 0:
             protectee_orig_features = torch.cat(protectee_orig_features, dim=0)
-        if prot_portion > 0:
+        if prot_portion > 0.:
             protectee_prot_features = torch.cat(protectee_prot_features, dim=0)
-
-        overall_res = {}
-        if not prot_portion > 0:
-            img_paths = noise_img_names + protectee_orig_img_names
-            features = torch.cat([noise_features, protectee_orig_features], dim=0)
-            orig_noise_num = len(noise_img_names) + len(protectee_orig_img_names)
-        elif prot_portion > 0 and len(protectee_orig_features) == 0:
-            img_paths = noise_img_names + protectee_prot_img_names
-            features = torch.cat([noise_features, protectee_prot_features], dim=0)
-            orig_noise_num = len(noise_img_names)
-        elif prot_portion > 0 and len(protectee_orig_features) > 0:
-            img_paths = noise_img_names + protectee_orig_img_names + protectee_prot_img_names
-            features = torch.cat([noise_features, protectee_orig_features, protectee_prot_features], dim=0)
-            orig_noise_num = len(noise_img_names) + len(protectee_orig_img_names)
+        print(f"Loaded {len(protectee_orig_features)} original protectee images and {len(protectee_prot_features)} protected protectee images.")
+        
+        img_paths = noise_img_names + protectee_orig_img_names + protectee_prot_img_names
+        if len(protectee_orig_img_names) > 0 and len(protectee_prot_img_names) > 0:
+            features: torch.Tensor = torch.cat([noise_features, protectee_orig_features, protectee_prot_features], dim=0)  # (N, D)
+        elif len(protectee_orig_img_names) > 0 and len(protectee_prot_img_names) == 0:
+            features: torch.Tensor = torch.cat([noise_features, protectee_orig_features], dim=0)  # (N, D)
+        elif len(protectee_orig_img_names) == 0 and len(protectee_prot_img_names) > 0:
+            features: torch.Tensor = torch.cat([noise_features, protectee_prot_features], dim=0)  # (N, D)
         else:
-            raise ValueError(f"Unknown case of prot_portion {prot_portion} and len(protectee_orig_features) {len(protectee_orig_features)}")
-        print(f'Clustering {features.shape[0]} images of {persons} persons...')
-        preds = cluster_features(features.to(device), n_clusters=persons).cpu().numpy().tolist()
+            raise ValueError("No protectee images loaded.")
+        assert len(img_paths) == features.shape[0]
+        orig_noise_num = len(noise_img_names) + len(protectee_orig_img_names)
+        preds = kmeans(features=features.to(device), n_clusters=num_ids, rand_seed=42).cpu().numpy()
         assert len(preds) == len(img_paths)
-        # We now check
-        # 1. The quality of the clustering of original images and noise images
+
         orig_noise_preds = preds[:orig_noise_num]
-        res = {}
-        for idx in range(orig_noise_num):
-            label = orig_noise_preds[idx]
-            if label not in overall_res:
-                overall_res[label] = []
-            overall_res[label].append(img_paths[idx])
-            name = img_paths[idx].split('/')[-2]
-            if name not in res:
-                res[name] = {}
-                res[name]['img_num'] = 0
-                res[name]['labels'] = {}
-            if label not in res[name]['labels']:
-                res[name]['labels'][label] = 0
-            res[name]['img_num'] += 1
-            res[name]['labels'][label] += 1
-        purities = []
-        for name, v in res.items():
-            max_count = max(v['labels'].values())
-            purity = max_count / v['img_num']
-            purities.append(purity)
-            print(f'Person {name}: purity {purity:.4f} ({max_count}/{v["img_num"]})')
-        print(f'Average purity: {np.mean(purities):.4f}')
-
-        if prot_portion > 0:
-            # 2. The quality of the clustering of protected images
-            prot_num = len(protectee_prot_img_names)
-            prot_preds = preds[orig_noise_num:]
-
-            res = {}
-            for idx in range(prot_num):
-                label = prot_preds[idx]
-                if label not in overall_res:
-                    overall_res[label] = []
-                overall_res[label].append(protectee_prot_img_names[idx])
-                name = protectee_prot_img_names[idx].split('/')[-3]
-                if name not in res:
-                    res[name] = {}
-                if label not in res[name]:
-                    res[name][label] = 0
-                res[name][label] += 1
-
-            purities = []
-            for name, v in res.items():
-                max_count = max(v.values())
-                purity = max_count / sum(v.values())
-                purities.append(purity)
-                print(f'Protected Person {name}: purity {purity:.4f} ({max_count}/{sum(v.values())})')
-            print(f'Average protected purity: {np.mean(purities):.4f}')
-        # Save clustering results
-        save_path = os.path.join(BASE_PATH, 'results', 'cluster', f'{face_db_name}_{mask_name[0]}_{mask_name[1][:-4]}_{fr_name}_{f"prot{prot_portion*100:.0f}" if prot_portion > 0 else "clean"}.yaml')
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        with open(save_path, 'w') as f:
+        prot_preds = preds[orig_noise_num:]
+        overall_res = {}
+        res = cal_purity(orig_noise_preds, img_paths[:orig_noise_num])
+        overall_res.update(res['res_by_cluster'])
+        for label, v in res['res_by_label'].items():
+            max_cnt = max(v['labels'].values())
+            purity = max_cnt / v['img_num']
+            print(f"{label}: purity={purity:.4f} ({max_cnt}/{v['img_num']})")
+        print(f"Average purity for original and noise images: {res['avg_purity']:.4f}")
+        if prot_portion > 0.:
+            res = cal_purity(prot_preds, img_paths[orig_noise_num:])
+            overall_res.update(res['res_by_cluster'])
+            for label, v in res['res_by_label'].items():
+                max_cnt = max(v['labels'].values())
+                purity = max_cnt / v['img_num']
+                print(f"{label}: purity={purity:.4f} ({max_cnt}/{v['img_num']})")
+            print(f"Average purity for protected images: {res['avg_purity']:.4f}")
+        with open(os.path.join(res_save_base_path, res_save_name), 'w') as f:
             yaml.dump(overall_res, f)

@@ -16,6 +16,7 @@ if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = False
 from omegaconf import OmegaConf
 
+from protego.utils import get_usable_img_paths
 from protego.protego_train_robust import train_protego_mask_robust
 from protego.protego_train import train_protego_mask
 from protego.run_exp import run
@@ -38,6 +39,7 @@ if __name__ == "__main__":
         'exp_name': 'default', 
         
         # Training data
+        'train_portion': 0.6,
         'uv_gen_align_ldmk': False, 
         'uv_gen_batch': 8, 
         'need_cropping': False, 
@@ -138,14 +140,14 @@ if __name__ == "__main__":
     cfgs.device = args.device if '--device' in sys.argv else cfgs.device
     torch.manual_seed(cfgs.global_random_seed)
 
-    train_portion = 0.6
-    shuffle_data = False
+    train_portion = cfgs.train_portion
+    shuffle_data = cfgs.shuffle
     train_data_path = os.path.join(BASE_PATH, 'face_db', 'face_scrub')
     protectees = sorted([name for name in os.listdir(train_data_path) if not name.startswith(('.', '_'))])
     data = {}
     for protectee in protectees:
         protectee_path = os.path.join(train_data_path, protectee)
-        imgs = [os.path.join(protectee_path, img_name) for img_name in os.listdir(protectee_path) if img_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')) and not img_name.startswith(('.', '_'))]
+        imgs = get_usable_img_paths(protectee_path)
         train_num = math.floor(len(imgs) * train_portion)
         eval_num = len(imgs) - train_num
         if shuffle_data:

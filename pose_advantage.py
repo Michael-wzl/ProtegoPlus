@@ -37,6 +37,7 @@ if __name__ == "__main__":
         'exp_name': 'default', 
         
         # Training data
+        'train_portion': 0.6,
         'uv_gen_align_ldmk': False, 
         'uv_gen_batch': 8, 
         'need_cropping': True, 
@@ -101,8 +102,8 @@ if __name__ == "__main__":
     cfgs.device = args.device if '--device' in sys.argv else cfgs.device
     torch.manual_seed(cfgs.global_random_seed)
 
-    train_portion = 0.6
-    shuffle_data = False
+    train_portion = cfgs.train_portion
+    shuffle_data = cfgs.shuffle
     front_data_path = os.path.join(BASE_PATH, 'face_db', 'BC_front')
     left_data_path = os.path.join(BASE_PATH, 'face_db', 'BC_left')
     right_data_path = os.path.join(BASE_PATH, 'face_db', 'BC_right')

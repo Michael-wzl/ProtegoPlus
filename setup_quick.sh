@@ -92,6 +92,7 @@ pip install lpips
 pip install kornia
 pip install av
 conda install -c conda-forge ffmpeg -y
+pip install cvxpy
 cd ..
 echo "All packages installed successfully!"
 
@@ -102,16 +103,16 @@ unzip mtcnn_pytorch_weights.zip
 rm -f mtcnn_pytorch_weights.zip
 cd ../../..
 
-echo "Downloading IR50-AdaFace-CASIA weights..."
-cd FR_DB/adaface/pretrained
-gdown --fuzzy "https://drive.google.com/file/d/1g1qdg7_HSzkue7_VrW64fnWuHl0YL2C2/view?usp=sharing"
-cd ../../..
+#echo "Downloading IR50-AdaFace-CASIA weights..."
+#cd FR_DB/adaface/pretrained
+#gdown --fuzzy "https://drive.google.com/file/d/1g1qdg7_HSzkue7_VrW64fnWuHl0YL2C2/view?usp=sharing"
+#cd ../../..
 
-echo "Downloading Processed FaceScrub Dataset..."
+#echo "Downloading Processed FaceScrub Dataset..."
 cd face_db
-gdown --fuzzy "https://drive.google.com/file/d/1_Mfq10d1fdDJGDum4QKZphHNXEc8LT0J/view?usp=sharing" # TODO Updated link, with imgs_list.txt
-unzip face_scrub_preprocessed.zip
-rm -f face_scrub_preprocessed.zip
+#gdown --fuzzy "https://drive.google.com/file/d/1_Mfq10d1fdDJGDum4QKZphHNXEc8LT0J/view?usp=sharing" # TODO Updated link, with imgs_list.txt
+#unzip face_scrub_preprocessed.zip
+#rm -f face_scrub_preprocessed.zip
 
 echo "Downloading Demo Video and Images..."
 gdown --fuzzy "https://drive.google.com/file/d/14U8zeWsgqrduJ5wr0l5Iv24-Vd1fZqZs/view?usp=sharing"
@@ -123,20 +124,21 @@ rm -f demo_imgs_bradley_cooper.zip
 cd ..
 
 echo "Downloading Pretrained Pose-invariant PPTs..."
-gdown --fuzzy "https://drive.google.com/file/d/1Ckh9To_EoUhcwooJ6con3DGtkVyVdGSu/view?usp=sharing"
-unzip pretrained_ppts_protego.zip
-rm -f pretrained_ppts_protego.zip
+cd experiments
+gdown --fuzzy "https://drive.google.com/file/d/1SymmnmEebg_DfUSSrn446Le38eeycetl/view?usp=share_link"
+unzip default.zip
+rm -f default.zip
 cd ..
 
 # ! Temporary for Focal Diversity Analysis
-echo "Downloading Evaluation Results for Focal Diversity Analysis..."
-cd results && mkdir eval && cd eval
-gdown --fuzzy "https://drive.google.com/file/d/1hTd8DGrDdEAZvZNMMxfAiTK2Sn5IipwX/view?usp=sharing" # len3ensemble.zip
-unzip len3ensemble.zip
-rm -f len3ensemble.zip
-gdown --fuzzy "https://drive.google.com/file/d/1m1r7mlxOHSiGbIkg7VFWrystUCjfLSqH/view?usp=sharing" # len4ensemble.zip
-unzip len4ensemble.zip
-rm -f len4ensemble.zip
-cd ../..
+#echo "Downloading Evaluation Results for Focal Diversity Analysis..."
+#cd results && mkdir eval && cd eval
+#gdown --fuzzy "https://drive.google.com/file/d/1hTd8DGrDdEAZvZNMMxfAiTK2Sn5IipwX/view?usp=sharing" # len3ensemble.zip
+#unzip len3ensemble.zip
+#rm -f len3ensemble.zip
+#gdown --fuzzy "https://drive.google.com/file/d/1m1r7mlxOHSiGbIkg7VFWrystUCjfLSqH/view?usp=sharing" # len4ensemble.zip
+#unzip len4ensemble.zip
+#rm -f len4ensemble.zip
+#cd ../..
 
 echo "ALL DONE!!!"

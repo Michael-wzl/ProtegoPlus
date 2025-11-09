@@ -21,7 +21,7 @@ from .compression import compress
 from . import BASE_PATH
 from .UVMapping import UVGenerator
 
-def kmeans(features: torch.Tensor, n_clusters: int, rand_seed: int, max_iter: int = 1000, distance: str = "cosine") -> torch.Tensor:
+def kmeans(features: torch.Tensor, n_clusters: int, rand_seed: int = 42, max_iter: int = 1000, distance: str = "cosine") -> torch.Tensor:
     """
     Use torch to accelerate k-means clustering.
 
@@ -62,7 +62,7 @@ def crop_face(img: torch.Tensor,
             verbose: bool = True, 
             strict: bool = False) -> Tuple[Optional[torch.Tensor], Optional[Tuple[int, int, int, int]]]:
     """
-    Crop the face from the image using MTCNN.
+    Crop the face from the image using FD.
 
     Args:
         img (torch.Tensor): FloatTensor. Range [0, 255] or [0, 1]. Shape [3, H, W]. RGB.
@@ -256,8 +256,7 @@ def preextract_features(base_path: str, fr: FR, device: torch.device, save_name:
     """
     usable_imgs = os.path.join(base_path, 'imgs_list.txt')
     if os.path.exists(usable_imgs):
-        with open(usable_imgs, 'r') as f:
-            img_names = [os.path.join(base_path, line.strip()) for line in f.readlines() if line.strip()]
+        img_names = get_usable_img_paths(base_path)
         imgs = load_imgs(img_paths=img_names, img_sz=224, usage_portion=1., drange=1, device=device)
     else:
         imgs, img_names = load_imgs(base_dir=base_path, img_sz=224, usage_portion=1., drange=1, device=device, return_img_paths=True)
@@ -272,7 +271,14 @@ def preextract_features(base_path: str, fr: FR, device: torch.device, save_name:
             for img_name in img_names:
                 f.write(os.path.relpath(img_name, base_path) + '\n')
 
-def build_facedb(db_path: str, fr: Union[str, FR], device: torch.device) -> Dict[str, torch.Tensor]:
+def get_usable_img_paths(base_dir: str) -> List[str]:
+    imgs = []
+    with open(os.path.join(base_dir, 'imgs_list.txt'), 'r') as f:
+        for line in f.readlines():
+            imgs.append(os.path.join(base_dir, line.strip()))
+    return imgs
+
+def build_facedb(db_path: str, fr: Union[str, FR], device: torch.device, return_img_paths: bool = False) -> Union[Dict[str, torch.Tensor], Dict[str, Tuple[torch.Tensor, List[str]]]]:
     """
     Build a database of features from the images in the given directory. Folders starting with '.' or '_' will be ignored.
 
@@ -280,9 +286,12 @@ def build_facedb(db_path: str, fr: Union[str, FR], device: torch.device) -> Dict
         db_path (str): The path to the database directory.
         fr (Union[str, FR]): The facial recognition model or the name of the model to use.
         device (torch.device): The device to use for computation.
+        return_img_paths (bool): Whether to return the list of image paths along with the features.
 
     Returns:
-        Dict[str, torch.Tensor]: A dictionary containing the features for each person in the database.
+        Union[Dict[str, torch.Tensor], Dict[str, Tuple[torch.Tensor, List[str]]]]: A dictionary containing the features for each person in the database.
+         - Dict[str, torch.Tensor]: A dictionary containing the features for each person in the database.
+         - Dict[str, Tuple[torch.Tensor, List[str]]]: A dictionary containing the features and image paths for each person in the database if return_img_paths is True.
     """
     db = {}
     names = sorted([n for n in os.listdir(db_path) if not n.startswith(('.', '_'))])
@@ -302,6 +311,9 @@ def build_facedb(db_path: str, fr: Union[str, FR], device: torch.device) -> Dict
             preextract_features(base_path=personal_path, fr=fr_model, device=device, save_name=f'{fr_name}.pt')
             features = torch.load(feature_path, map_location=device, weights_only=False)
         db[name] = features.to(device)
+        if return_img_paths:
+            img_paths = get_usable_img_paths(personal_path)
+            db[name] = (features.to(device), img_paths)
     return db
 
 def build_compressed_face_db(db_path: str, fr: Union[str, FR], device: torch.device, compression_methods: List[str], compression_cfgs: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, torch.Tensor]]:

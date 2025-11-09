@@ -172,6 +172,7 @@ class Retinaface(object):
         if arch == 'mobilenet0.25':
             self.cfg = {
             'name': 'mobilenet0.25',
+            'statedict_path': os.path.join(RETINAFACE_HOME, 'pretrained/mobilenetV1X0.25_pretrain.tar'),
             'min_sizes': [[16, 32], [64, 128], [256, 512]],
             'steps': [8, 16, 32],
             'variance': [0.1, 0.2],
