@@ -115,7 +115,7 @@ cd face_db
 #rm -f face_scrub_preprocessed.zip
 
 echo "Downloading Demo Video and Images..."
-gdown --fuzzy "https://drive.google.com/file/d/14U8zeWsgqrduJ5wr0l5Iv24-Vd1fZqZs/view?usp=sharing"
+gdown --fuzzy "https://drive.google.com/file/d/1CuSjqc_GGvBatbjkdv2AT4yxUsGcxXUB/view?usp=share_link"
 unzip demo_vids_bradley_cooper.zip
 rm -f demo_vids_bradley_cooper.zip
 gdown --fuzzy "https://drive.google.com/file/d/1SmnKTaPw82hjWcgf-td921licl-BBowD/view?usp=sharing"
