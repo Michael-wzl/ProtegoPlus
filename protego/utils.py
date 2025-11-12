@@ -452,6 +452,7 @@ def prot_eval(orig_features: torch.Tensor, protected_features: torch.Tensor, fac
 
     dist_func = dist_func
     #dist_func = fr.dis_func
+    # Case 1: Search with unprotected queries
     if verbose:
         print('===== Search with unprotected queries =====')    
     query_features = orig_features[:query_num]
@@ -561,7 +562,7 @@ def eval_masks(three_d: bool,
             textures = tensor_masks[img_cnt:img_cnt + img_num].to(device)  # Shape: [B, 224, 224, 3]
             perturbations = torch.clamp(F.grid_sample(textures, uvs, mode='bilinear', align_corners=True), -epsilon, epsilon)
         else:
-            perturbations = tensor_masks[img_cnt:img_cnt + img_num].to(device)
+            perturbations = torch.clamp(tensor_masks[img_cnt:img_cnt + img_num].to(device), -epsilon, epsilon)
         if bin_mask:
             bin_masks = tensors[2].to(device)
             perturbations *= bin_masks
@@ -681,7 +682,8 @@ def eval_mask_end2end(three_d: bool,
                     smoothing: str = None, 
                     vis_eval: bool = True, 
                     lpips_backbone: str = "vgg", 
-                    verbose: bool = False) -> Dict[str, Union[float, Dict[str, float]]]:
+                    verbose: bool = False, 
+                    eval_scene1_db: Optional[Dict[str, Dict[str, torch.Tensor]]] = None) -> Dict[str, Union[float, Dict[str, float]]]:
     """
     Evaluate masks against a database of facial features in an end-to-end manner, aka starting from uncropped images to protection evaluation.
 
@@ -703,6 +705,7 @@ def eval_mask_end2end(three_d: bool,
         vis_eval (bool): Whether to visualize the evaluation results.
         lpips_backbone (str): The backbone to use for LPIPS calculation. 'vgg', 'alex', or 'squeeze'.
         verbose (bool): Whether to print the evaluation results.
+        eval_scene1_db (Optional[Dict[str, Dict[str, torch.Tensor]]]): The pre-built database for scene 1 evaluation. If None, it will be built solely from face_db_path.
 
     Returns:
         Dict[str, Union[float, Dict[str, float]]]: A dictionary containing the evaluation results. Includes retrieval accuracies for each FR model, various norms, and visual quality metrics.
@@ -815,9 +818,12 @@ def eval_mask_end2end(three_d: bool,
     for fr in frs:
         protected_features = fr(protected_faces)
         orig_features = fr(original_faces)
+        noise_db = build_facedb(face_db_path, fr.model_name, device)
+        if eval_scene1_db is not None:
+            noise_db.update(eval_scene1_db[fr.model_name])
         fr_results[fr.model_name] = prot_eval(orig_features=orig_features,
                                              protected_features=protected_features,
-                                             face_db=build_facedb(face_db_path, fr.model_name, device),
+                                             face_db=noise_db,
                                              dist_func='cosine',
                                              query_portion=query_portion,
                                              device=device,
@@ -929,6 +935,19 @@ def visualize_mask(
     use_bin_mask: bool,
     three_d: bool
 ) -> None:
+    """
+    Visualize the original image, protected image, universal mask, perturbation, UV map, and binary mask.
+
+    Args:
+        orig_img (torch.Tensor): The original image. Shape: (3, H, W). Range: [0, 1].
+        uv (torch.Tensor): The UV map. Shape: (H, W, 2). 
+        bin_mask (torch.Tensor): The binary mask. Shape: (1, H, W).
+        univ_mask (torch.Tensor): The universal mask. Shape: (1, 3, H, W). Range: [-epsilon, epsilon].
+        save_path (str): The path to save the visualization.
+        epsilon (float): The maximum perturbation value.
+        use_bin_mask (bool): Whether to use the binary mask.
+        three_d (bool): Whether to use 3D masks.
+    """
     _orig_img = orig_img.detach()
     _uv = uv.detach()
     _bin_mask = bin_mask.detach()
@@ -936,7 +955,7 @@ def visualize_mask(
     if three_d:
         _pert = torch.clamp(F.grid_sample(_univ_mask, _uv.unsqueeze(0), mode='bilinear', align_corners=True).squeeze(0), -epsilon, epsilon)
     else:
-        _pert = _univ_mask.squeeze(0)
+        _pert = torch.clamp(_univ_mask.squeeze(0), -epsilon, epsilon)
     if use_bin_mask:
         _pert = _pert * _bin_mask
     _prot_img = torch.clamp(_orig_img + _pert, 0, 1)

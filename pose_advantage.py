@@ -58,6 +58,7 @@ if __name__ == "__main__":
         'train_fr_names': [n for n in BASIC_POOL if n != 'ir50_adaface_casia'], 
 
         # Eval configs
+        'eval_scene': 1,
         'mask_name': ['all_sides', 'univ_mask.npy'], 
         'eval_db': 'face_scrub',
         'eval_fr_names': ['ir50_adaface_casia'],

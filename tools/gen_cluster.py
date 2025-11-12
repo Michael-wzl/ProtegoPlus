@@ -55,7 +55,7 @@ if __name__ == "__main__":
         ####################################################################################################################
         device = torch.device('cuda:7')
         face_db_name = 'face_scrub'
-        mask_name = ['default_cham', 'univ_mask.npy']
+        mask_name = ['default_opom', 'univ_mask.npy']
         epsilon = 16 / 255.
         three_d = False
         bin_mask = False

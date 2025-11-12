@@ -60,15 +60,16 @@ if __name__ == "__main__":
         'train_fr_names': [n for n in BASIC_POOL if n != 'ir50_adaface_casia'],
 
         # Eval configs
-        'mask_name': ['end2end_resize', 'univ_mask.npy'], 
+        'eval_scene': 1,
+        'mask_name': ['end2end_jpeg', 'univ_mask.npy'], 
         'eval_db': 'face_scrub',
-        'eval_fr_names': ['transfaces_arcface_ms1mv2', 'ir50_magface_ms1mv2', 'ir50_adaface_casia'],
+        'eval_fr_names': ['ir50_adaface_casia'],
         'save_univ_mask': True, 
         'visualize_interval': 30,
         'query_portion': 0.5,
         'vis_eval': True, 
         'lpips_backbone': "vgg", 
-        'end2end_eval': False, 
+        'end2end_eval': True, 
         'strict_crop': True, 
         'resize_face': False, 
         'jpeg': True, 
@@ -142,22 +143,7 @@ if __name__ == "__main__":
 
     train_portion = cfgs.train_portion
     shuffle_data = cfgs.shuffle
-    train_data_path = os.path.join(BASE_PATH, 'face_db', 'face_scrub')
-    protectees = sorted([name for name in os.listdir(train_data_path) if not name.startswith(('.', '_'))])
-    data = {}
-    for protectee in protectees:
-        protectee_path = os.path.join(train_data_path, protectee)
-        imgs = get_usable_img_paths(protectee_path)
-        train_num = math.floor(len(imgs) * train_portion)
-        eval_num = len(imgs) - train_num
-        if shuffle_data:
-            rand_gen = torch.Generator()
-            rand_gen.manual_seed(cfgs.global_random_seed)
-            indices = torch.randperm(len(imgs), generator=rand_gen).tolist()
-            imgs = [imgs[i] for i in indices]
-        data[protectee] = {'train': imgs[:train_num], 'eval': imgs[train_num:]}
-    """usage_portion = 1.
-    shuffle_data = False
+    usage_portion = 1.
     eval_data_path = os.path.join(BASE_PATH, 'face_db', 'fs_uncropped')
     protectees = sorted([name for name in os.listdir(eval_data_path) if not name.startswith(('.', '_'))])
     data = {}
@@ -170,16 +156,6 @@ if __name__ == "__main__":
             indices = torch.randperm(len(imgs), generator=rand_gen).tolist()
             imgs = [imgs[i] for i in indices]
         usage_num = math.floor(len(imgs) * usage_portion)
-        data[protectee] = {'eval': imgs[:usage_num]}"""
-    #run(cfgs, mode='train', data=data, train=train_protego_mask)
-    exp_name_prefix = cfgs.exp_name
-    train_fr_combinations = list(itertools.combinations(cfgs.train_fr_names, 4))
-    #combs_to_use = train_fr_combinations
-    #combs_to_use = random.Random(cfgs.global_random_seed).sample(train_fr_combinations, k=min(20, len(train_fr_combinations)))
-    combs_to_use = train_fr_combinations[4*len(train_fr_combinations)//5:]
-    for comb in combs_to_use:
-        cfgs.train_fr_names = list(comb)
-        cfgs.exp_name = exp_name_prefix + '_' + '-'.join(cfgs.train_fr_names)
-        cfgs.mask_name = [f'len4ensemble/{cfgs.exp_name.replace("-", "_")}', 'univ_mask.npy']
-        #run(cfgs, mode='train', data=data, train=train_protego_mask)
-        run(cfgs, mode='eval', data=data)
+        data[protectee] = {'eval': imgs[:usage_num]}
+    #run(cfgs, mode='train', data=data, train=train_protego_mask_robust)
+    run(cfgs, mode='eval', data=data)

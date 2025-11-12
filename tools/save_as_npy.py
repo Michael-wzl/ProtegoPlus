@@ -34,12 +34,12 @@ if __name__ == "__main__":
         # Configuration
         ####################################################################################################################
         device = torch.device('cuda:0')
-        cluster_res_name = "face_scrub_default_cham_ir50_adaface_casia_prot20.yaml"
+        cluster_res_name = "face_scrub_default_opom_ir50_adaface_casia_prot20.yaml"
         three_d = False
         bin_mask = False
         epsilon = 16 / 255.
-        mask_name = ['default_cham', 'univ_mask.npy']
-        save_path = "/home/zlwang/AdaFace/data/fs_prot20_cham"
+        mask_name = ['default_opom', 'univ_mask.npy']
+        save_path = "/home/zlwang/AdaFace/data/fs_prot20_opom"
         sanity_check = True
         ####################################################################################################################
         smirk_base_path = os.path.join(BASE_PATH, 'smirk')

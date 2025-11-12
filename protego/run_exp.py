@@ -8,12 +8,14 @@ import torch.nn.functional as F
 import numpy as np
 import yaml
 from omegaconf import OmegaConf
+import tqdm
 
 from .FacialRecognition import FR
 from .FaceDetection import FD
-from .utils import load_imgs, load_mask, build_facedb, build_compressed_face_db, crop_face, complete_del, visualize_mask, eval_masks, compression_eval, eval_mask_end2end
-from . import BASE_PATH
 from .UVMapping import UVGenerator
+from .utils import load_imgs, load_mask, build_facedb, build_compressed_face_db, crop_face, complete_del, visualize_mask, eval_masks, compression_eval, eval_mask_end2end
+from .compression import compress
+from . import BASE_PATH
 
 def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train: callable = None) -> None:
     """
@@ -62,7 +64,7 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
         ####################################################################################################################
         # Init FD if needed
         ####################################################################################################################
-        if cfgs.need_cropping:
+        if cfgs.need_cropping or cfgs.end2end_eval:
             fd = FD(model_name=cfgs.fd_name, device=device)
     ####################################################################################################################
     # Init FRs
@@ -72,19 +74,22 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
     ####################################################################################################################
     # Main loop
     ####################################################################################################################
+    if cfgs.eval_scene == 1:
+        protectee_masks, protectee_eval_data, protectee_no_face_imgs = {}, {}, {}
     training_times = []
     for protectee_idx, (protectee, protectee_data) in enumerate(data.items()):
         ####################################################################################################################
         # Enumerate through all the protectees
         ####################################################################################################################
-        print("\n"+"#" * 50)
-        print(f"Protectee: {protectee} ({protectee_idx+1}/{len(data)})")
-        print("#" * 50+ "\n")
+        if not (cfgs.eval_scene == 1 and mode == 'eval'):
+            print("\n"+"#" * 50)
+            print(f"Protectee: {protectee} ({protectee_idx+1}/{len(data)})")
+            print("#" * 50+ "\n")
         res_save_path = os.path.join(res_path, protectee)
         os.makedirs(res_save_path, exist_ok=False)
         print(f"Created directory {res_save_path} for protectee {protectee}.")
         with open(os.path.join(res_save_path, 'cfgs.yaml'), 'w') as f:
-                OmegaConf.save(cfgs, f)
+            OmegaConf.save(cfgs, f)
         if mode == 'train':
             with torch.no_grad():
                 if not cfgs.need_cropping:
@@ -157,6 +162,9 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
             mask_path = os.path.join(mask_base_path, protectee, cfgs.mask_name[1])
             assert os.path.exists(mask_path), f"Mask file {mask_path} does not exist."
             univ_mask = load_mask(mask_path=mask_path, device=device)
+
+        if cfgs.eval_scene == 1:
+            protectee_masks[protectee] = univ_mask.clone().to(torch.device('cpu'))
         
         with torch.no_grad():
             if cfgs.need_cropping or cfgs.end2end_eval:
@@ -172,6 +180,8 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
                 print(f"{len(no_face)} eval images do not have detectable faces and are ignored:")
                 for idx in no_face:
                     print(f"{protectee_data['eval'][idx]}")
+                if cfgs.eval_scene == 1:
+                    protectee_no_face_imgs[protectee] = no_face
                 eval_imgs = torch.stack(_cropped_imgs, dim=0)
                 del _cropped_imgs
                 complete_del()
@@ -184,6 +194,24 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
             eval_imgs = eval_imgs.cpu()
             eval_uvs = eval_uvs.cpu()
             eval_bin_masks = eval_bin_masks.cpu()
+            if cfgs.visualize_interval > 0:
+                for img_idx in range(0, img_num, cfgs.visualize_interval):
+                    visualize_mask(
+                        orig_img=eval_imgs[img_idx].to(device),
+                        uv=eval_uvs[img_idx].to(device),
+                        bin_mask=eval_bin_masks[img_idx].to(device),
+                        univ_mask=univ_mask.clone().to(device),
+                        epsilon=cfgs.epsilon,
+                        save_path=os.path.join(res_save_path, f"eval_vis_{img_idx}.jpg"),
+                        use_bin_mask=cfgs.bin_mask,
+                        three_d=cfgs.three_d)
+            if cfgs.eval_scene == 1:
+                protectee_eval_data[protectee] = {
+                    'imgs': eval_imgs,
+                    'uvs': eval_uvs,
+                    'bin_masks': eval_bin_masks,
+                }
+                continue
             eval_dl = DataLoader(
                 dataset=TensorDataset(eval_imgs, eval_uvs, eval_bin_masks),
                 batch_size=16,
@@ -194,17 +222,6 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
             )
             del eval_imgs, eval_uvs, eval_bin_masks
             complete_del()
-            if cfgs.visualize_interval > 0:
-                for img_idx in range(0, img_num, cfgs.visualize_interval):
-                    visualize_mask(
-                        orig_img=eval_dl.dataset[img_idx][0].to(device),
-                        uv=eval_dl.dataset[img_idx][1].to(device),
-                        bin_mask=eval_dl.dataset[img_idx][2].to(device),
-                        univ_mask=univ_mask.clone().to(device),
-                        epsilon=cfgs.epsilon,
-                        save_path=os.path.join(res_save_path, f"eval_vis_{img_idx}.jpg"),
-                        use_bin_mask=cfgs.bin_mask,
-                        three_d=cfgs.three_d)
             for eval_fr in eval_frs:
                 noise_db = build_facedb(db_path=noise_db_path, fr=eval_fr, device=device)
                 res = eval_masks(
@@ -268,11 +285,141 @@ def run(cfgs: OmegaConf, mode: str, data: Dict[str, Dict[str, List[str]]], train
                                 vis_eval=False, 
                                 lpips_backbone=cfgs.lpips_backbone,
                                 verbose=True)
-                prot_results = end2end_res['prot_results']
-                for fr_name, prot_res in prot_results.items():
+                for fr_name, prot_res in end2end_res['prot_results'].items():
                     with open(os.path.join(res_save_path, f"end2end_eval_res_{fr_name}.yaml"), 'w') as f:
                         yaml.dump(prot_res, f)
     if mode == 'train':
         print(f"Average training time: {np.mean(training_times):.2f} seconds.")
 
-                    
+    if cfgs.eval_scene == 1:
+        with torch.no_grad():
+            protectee_eval_features = {}
+            pbar = tqdm.tqdm(protectee_eval_data.items(), desc="Preparing evaluation features for all protectees")
+            for protectee, protectee_data in pbar:
+                pbar.set_postfix({"Protectee": protectee})
+                eval_imgs = protectee_data['imgs'].to(device)
+                eval_uvs = protectee_data['uvs'].to(device)
+                eval_bin_masks = protectee_data['bin_masks'].to(device)
+                protectee_mask = protectee_masks[protectee].to(device)
+                if cfgs.three_d:
+                    perts = torch.clamp(F.grid_sample(protectee_mask.repeat(eval_imgs.shape[0], 1, 1, 1), eval_uvs, align_corners=True, mode='bilinear'), -cfgs.epsilon, cfgs.epsilon)
+                else:
+                    perts = torch.clamp(protectee_mask.repeat(eval_imgs.shape[0], 1, 1, 1), -cfgs.epsilon, cfgs.epsilon)
+                if cfgs.bin_mask:
+                    perts *= eval_bin_masks
+                prot_imgs = torch.clamp(eval_imgs + perts, 0., 1.)
+                orig_feature_num = int(eval_imgs.shape[0] * cfgs.query_portion)
+                protectee_feature = {}
+                for eval_fr in eval_frs:
+                    orig_features = eval_fr(eval_imgs)[:orig_feature_num]
+                    prot_features = eval_fr(prot_imgs)[orig_feature_num:]
+                    protectee_feature[eval_fr.model_name] = {}
+                    protectee_feature[eval_fr.model_name]['uncompressed'] = torch.cat([orig_features, prot_features], dim=0).cpu()
+                    if cfgs.eval_compression:
+                        protectee_feature[eval_fr.model_name]['compressed'] = {}
+                        for compression_method in cfgs.eval_compression_methods:
+                            compressed_orig_features = eval_fr(compress(eval_imgs, method=compression_method, differentiable = False, **cfgs.compression_cfgs[compression_method])).cpu()[:orig_feature_num]
+                            compressed_prot_features = eval_fr(compress(prot_imgs, method=compression_method, differentiable = False, **cfgs.compression_cfgs[compression_method])).cpu()[orig_feature_num:]
+                            protectee_feature[eval_fr.model_name]['compressed'][compression_method] = torch.cat([compressed_orig_features, compressed_prot_features], dim=0)
+                protectee_eval_features[protectee] = protectee_feature
+            for protectee_idx, (protectee, protectee_data) in enumerate(protectee_eval_data.items()):
+                print("\n"+"#" * 50)
+                print(f"Evaluating under Eval Scene {cfgs.eval_scene} for Protectee: {protectee} ({protectee_idx+1}/{len(data)})")
+                print("#" * 50+ "\n")
+                res_save_path = os.path.join(res_path, protectee)
+                eval_imgs = protectee_data['imgs'].to(device)
+                eval_uvs = protectee_data['uvs'].to(device)
+                eval_bin_masks = protectee_data['bin_masks'].to(device)
+                img_num = eval_imgs.shape[0]
+                protectee_mask = protectee_masks[protectee].to(device)
+                eval_dl = DataLoader(
+                    dataset=TensorDataset(eval_imgs, eval_uvs, eval_bin_masks),
+                    batch_size=16,
+                    shuffle=False,
+                    num_workers=0,
+                    pin_memory=False,
+                    persistent_workers=False
+                )
+                for eval_fr in eval_frs:
+                    noise_db = build_facedb(db_path=noise_db_path, fr=eval_fr, device=device)
+                    for other_protectee, other_protectee_features in protectee_eval_features.items():
+                        if other_protectee == protectee:
+                            continue
+                        noise_db[other_protectee] = other_protectee_features[eval_fr.model_name]['uncompressed'].to(device)
+                    res = eval_masks(
+                        three_d=cfgs.three_d,
+                        test_data=eval_dl, 
+                        face_db=noise_db,
+                        fr=eval_fr,
+                        device=device,
+                        bin_mask=cfgs.bin_mask,
+                        epsilon=cfgs.epsilon,
+                        masks=protectee_mask.repeat(img_num, 1, 1, 1), 
+                        query_portion=cfgs.query_portion,
+                        vis_eval=cfgs.vis_eval,
+                        lpips_backbone=cfgs.lpips_backbone, 
+                        verbose=True)
+                    if mode == 'train':
+                        res['training_time'] = training_times[protectee_idx]
+                    with open(os.path.join(res_save_path, f"eval_res_{eval_fr.model_name}.yaml"), 'w') as f:
+                        yaml.dump(res, f)
+                    if cfgs.eval_compression:
+                        noise_db = build_compressed_face_db(db_path=noise_db_path, 
+                                                            fr=eval_fr, 
+                                                            device=device, 
+                                                            compression_methods=cfgs.eval_compression_methods, 
+                                                            compression_cfgs=cfgs.compression_cfgs)
+                        for other_protectee, other_protectee_features in protectee_eval_features.items():
+                            if other_protectee == protectee:
+                                continue
+                            for compression_method in cfgs.eval_compression_methods:
+                                noise_db[compression_method][other_protectee] = other_protectee_features[eval_fr.model_name]['compressed'][compression_method].to(device)
+                        compression_res = compression_eval(
+                            compression_methods=cfgs.eval_compression_methods, 
+                            compression_cfgs=cfgs.compression_cfgs,
+                            three_d=cfgs.three_d,
+                            test_data=eval_dl,
+                            face_db=noise_db,
+                            fr=eval_fr,
+                            device=device,
+                            bin_mask=cfgs.bin_mask,
+                            epsilon=cfgs.epsilon,
+                            masks=protectee_mask.repeat(img_num, 1, 1, 1),
+                            query_portion=cfgs.query_portion
+                        )
+                        with open(os.path.join(res_save_path, f"compression_res_{eval_fr.model_name}.yaml"), 'w') as f:
+                            yaml.dump(compression_res, f)
+                del eval_dl
+                complete_del()
+                if cfgs.end2end_eval:
+                    eval_scene1_db = {}
+                    for eval_fr in eval_frs:
+                        eval_scene1_db[eval_fr.model_name] = {}
+                        for other_protectee, other_protectee_features in protectee_eval_features.items():
+                            if other_protectee == protectee:
+                                continue
+                            eval_scene1_db[eval_fr.model_name][other_protectee] = other_protectee_features[eval_fr.model_name]['uncompressed'].to(device)
+                    end2end_res = eval_mask_end2end(
+                                three_d=cfgs.three_d,
+                                test_raw_imgs=load_imgs(img_paths=[f for f_idx, f in enumerate(data[protectee]['eval']) if f_idx not in protectee_no_face_imgs[protectee]], 
+                                                        img_sz=-1, usage_portion=1.0, drange=1, device=device), 
+                                face_db_path=noise_db_path, 
+                                frs=eval_frs,
+                                fd=fd,
+                                uvmapper=uvmapper, 
+                                device=device,
+                                bin_mask=cfgs.bin_mask,
+                                epsilon=cfgs.epsilon,
+                                mask=protectee_mask.clone(), 
+                                query_portion=cfgs.query_portion,
+                                strict_crop=cfgs.strict_crop,
+                                resize_face=cfgs.resize_face, 
+                                jpeg=cfgs.jpeg, 
+                                smoothing=None if cfgs.smoothing.lower() == 'none' else cfgs.smoothing.lower(),
+                                vis_eval=False, 
+                                lpips_backbone=cfgs.lpips_backbone,
+                                verbose=True, 
+                                eval_scene1_db=eval_scene1_db)
+                    for fr_name, prot_res in end2end_res['prot_results'].items():
+                        with open(os.path.join(res_save_path, f"end2end_eval_res_{fr_name}.yaml"), 'w') as f:
+                            yaml.dump(prot_res, f)
