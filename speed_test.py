@@ -50,7 +50,7 @@ if __name__ == "__main__":
         # Training configs
         'three_d': True,
         'epoch_num': 100,  
-        'batch_size' : 4, 
+        'batch_size' : 32, 
         'epsilon' : 16 / 255., 
         'min_ssim' : 0.95, 
         'learning_rate' : 0.01 * (16 / 255.), # Protego and Chameleon: 0.01 * (16 / 255.) OPOM: 1 / 255.
@@ -60,7 +60,7 @@ if __name__ == "__main__":
         'train_fr_names': [n for n in BASIC_POOL if n != 'ir50_adaface_casia'],  
 
         # Eval configs
-        'eval_scene': 1,
+        'eval_scene': 0,
         'mask_name': ['default', 'univ_mask.npy'], 
         'eval_db': 'face_scrub',
         'eval_fr_names': ['ir50_adaface_casia'],
@@ -121,11 +121,11 @@ if __name__ == "__main__":
             indices = torch.randperm(len(imgs), generator=rand_gen).tolist()
             imgs = [imgs[i] for i in indices]
         data[protectee] = {'train': imgs[:train_num], 'eval': imgs[train_num:]}
-    #run(cfgs, mode='train', data=data, train=train_protego_mask)
+    run(cfgs, mode='train', data=data, train=train_protego_mask)
     #run(cfgs, mode='train', data=data, train=train_opom_mask)
     #run(cfgs, mode='train', data=data, train=train_protego_mask_lpips)
     #run(cfgs, mode='train', data=data, train=train_chameleon_mask)
-    run(cfgs, mode='eval', data=data)
+    #run(cfgs, mode='eval', data=data)
     """
     exp_name_prefix = cfgs.exp_name
     train_fr_combinations = list(itertools.combinations(cfgs.train_fr_names, 4))
