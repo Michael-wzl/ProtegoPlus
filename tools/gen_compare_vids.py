@@ -23,9 +23,9 @@ if __name__ == "__main__":
         ####################################################################################################################
         # Configuration
         ####################################################################################################################
-        device = torch.device('cuda:7')
-        protectee_name = "Bradley_Cooper"
-        vid_name = "bc1_480p.mp4"
+        device = torch.device('cuda:5')
+        protectee_name = "Hugh_Grant"
+        vid_name = "hg1.mp4"
         mask_cfgs = {
             'protego': {
                 'mask_names': ['default', 'univ_mask.npy'],

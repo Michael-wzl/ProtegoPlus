@@ -50,7 +50,7 @@ if __name__ == "__main__":
         # Training configs
         'three_d': True,
         'epoch_num': 100,  
-        'batch_size' : 32, 
+        'batch_size' : 16, 
         'epsilon' : 16 / 255., 
         'min_ssim' : 0.95, 
         'learning_rate' : 0.01 * (16 / 255.), # Protego and Chameleon: 0.01 * (16 / 255.) OPOM: 1 / 255.
