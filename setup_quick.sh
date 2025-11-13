@@ -1,4 +1,11 @@
 #!/bin/bash
+####################################################################################################################
+# Configuration
+ENV_NAME="protego_cvpr"
+PYTHON_VERSION="3.9" 
+####################################################################################################################
+
+# Check OS type
 OS_TYPE=$(uname)
 if [[ "$OS_TYPE" == "Darwin" ]]; then
     echo "Running on macOS"
@@ -10,6 +17,7 @@ else
     exit 1
 fi
 
+# Check CUDA support for Linux
 check_cuda_support() {
     if command -v lspci &> /dev/null; then
         if lspci | grep -i nvidia &> /dev/null; then
@@ -34,6 +42,7 @@ if [[ "$OS_TYPE" == "Linux" ]]; then
     fi
 fi
 
+# Download SMIRK assets
 echo "Downloading SMIRK assets..."
 mkdir tmp && cd tmp
 git clone https://github.com/georgeretsi/smirk
@@ -41,12 +50,11 @@ mv smirk/assets ../smirk/
 cd ..
 rm -rf tmp
 
+# Create and activate conda environment
 CONDA_BASE=$(conda info --base)
 source "$CONDA_BASE/etc/profile.d/conda.sh"
 conda activate base
 
-ENV_NAME="protego_plus"
-PYTHON_VERSION="3.9" 
 if conda env list | grep -q "^$ENV_NAME\s"; then
     echo "Error: Conda environment '$ENV_NAME' already exists. Please remove it or choose a different name."
     exit 1
@@ -55,13 +63,10 @@ echo "Creating conda environment: $ENV_NAME with Python $PYTHON_VERSION..."
 conda create -n $ENV_NAME python=$PYTHON_VERSION -y
 echo "Activating conda environment: $ENV_NAME..."
 conda activate $ENV_NAME
-check_target_env() {
-    if [[ "$CONDA_DEFAULT_ENV" != "$ENV_NAME" ]]; then
-        echo "Error: Attempting to install packages to '$CONDA_DEFAULT_ENV'. Please remove the automatically created env and set up the environment manually."
-        exit 1
-    fi
-}
-check_target_env
+if [[ "$CONDA_DEFAULT_ENV" != "$ENV_NAME" ]]; then
+    echo "Error: Attempting to install packages to '$CONDA_DEFAULT_ENV', which isn't the target env. Please remove the automatically created env and set up the environment manually."
+    exit 1
+fi
 echo "Installing packages and downloading SMIRK weights..."
 if [[ "$OS_TYPE" == "Linux" ]]; then
     pip install -r requirements.txt
@@ -96,49 +101,30 @@ pip install cvxpy
 cd ..
 echo "All packages installed successfully!"
 
+# Download MTCNN weights
 echo "Downloading MTCNN weights..."
-cd FD_DB/MTCNN/pretrained/
-gdown --fuzzy "https://drive.google.com/file/d/1uJopXpkHHzzImZ-4LVWrRHHMbUECi5Fb/view?usp=share_link"
-unzip mtcnn_pytorch_weights.zip
-rm -f mtcnn_pytorch_weights.zip
+mkdir tmp && cd tmp
+git clone https://github.com/TropComplique/mtcnn-pytorch
+cd ..
+mv tmp/mtcnn-pytorch/src/weights/* FD_DB/MTCNN/pretrained/
+rm -rf tmp
+
+# Donwload IR50-OPOM weights
+echo "Downloading IR50-OPOM weights..."
+cd FR_DB/ir50_opom/pretrained
+gdown --fuzzy https://drive.google.com/file/d/1XmHD2mTcc6SHutCVPVw7cVg5jGkGIIUU/view?usp=sharing
+unzip models.zip && rm -f models.zip
+mv models/surrogate/IR_50-CosFace-casia/* .
+mv models/surrogate/IR_50-Softmax-casia/* .
+rm -rf models
 cd ../../..
 
-#echo "Downloading IR50-AdaFace-CASIA weights..."
-#cd FR_DB/adaface/pretrained
-#gdown --fuzzy "https://drive.google.com/file/d/1g1qdg7_HSzkue7_VrW64fnWuHl0YL2C2/view?usp=sharing"
-#cd ../../..
-
-#echo "Downloading Processed FaceScrub Dataset..."
+# Create file structures
 cd face_db
-#gdown --fuzzy "https://drive.google.com/file/d/1_Mfq10d1fdDJGDum4QKZphHNXEc8LT0J/view?usp=sharing" # TODO Updated link, with imgs_list.txt
-#unzip face_scrub_preprocessed.zip
-#rm -f face_scrub_preprocessed.zip
-
-echo "Downloading Demo Video and Images..."
-gdown --fuzzy "https://drive.google.com/file/d/1CuSjqc_GGvBatbjkdv2AT4yxUsGcxXUB/view?usp=share_link"
-unzip demo_vids_bradley_cooper.zip
-rm -f demo_vids_bradley_cooper.zip
-gdown --fuzzy "https://drive.google.com/file/d/1SmnKTaPw82hjWcgf-td921licl-BBowD/view?usp=sharing"
-unzip demo_imgs_bradley_cooper.zip
-rm -f demo_imgs_bradley_cooper.zip
+mkdir imgs vids
 cd ..
-
-echo "Downloading Pretrained Pose-invariant PPTs..."
-cd experiments
-gdown --fuzzy "https://drive.google.com/file/d/1SymmnmEebg_DfUSSrn446Le38eeycetl/view?usp=share_link"
-unzip default.zip
-rm -f default.zip
+cd results
+mkdir imgs vids eval
 cd ..
-
-# ! Temporary for Focal Diversity Analysis
-#echo "Downloading Evaluation Results for Focal Diversity Analysis..."
-#cd results && mkdir eval && cd eval
-#gdown --fuzzy "https://drive.google.com/file/d/1hTd8DGrDdEAZvZNMMxfAiTK2Sn5IipwX/view?usp=sharing" # len3ensemble.zip
-#unzip len3ensemble.zip
-#rm -f len3ensemble.zip
-#gdown --fuzzy "https://drive.google.com/file/d/1m1r7mlxOHSiGbIkg7VFWrystUCjfLSqH/view?usp=sharing" # len4ensemble.zip
-#unzip len4ensemble.zip
-#rm -f len4ensemble.zip
-#cd ../..
 
 echo "ALL DONE!!!"

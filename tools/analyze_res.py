@@ -1,13 +1,11 @@
 import os
+import argparse
 
 import yaml
 import matplotlib.pyplot as plt
 import numpy as np
 
 from protego import BASE_PATH
-
-RES_BASE_PATH = os.path.join(BASE_PATH, "experiments")
-#RES_BASE_PATH = os.path.join(BASE_PATH, "results", "eval")
 
 def _safe_load_yaml(file_path: str):
     if not os.path.exists(file_path):
@@ -218,13 +216,24 @@ def ana_res(eval_name: str, compression: bool, use_lpips: bool, end2end_mode: bo
                 plt.close()
 
 if __name__ == "__main__":
-    ######################### Configuration #########################
-    # Under results/eval/<eval_name>/ there should be multiple user subfolders, each containing yaml results.
-    eval_name = "protego_batchsz16"  # subfolder name with evaluation results
-    compression = False  # set True if compression_res_{fr}.yaml exists
-    need_lpips = False    # collect LPIPS only in non end2end mode
-    end2end = False       # enable end2end mode: read end2end_eval_res_{fr}.yaml
-    #################################################################
+    args = argparse.ArgumentParser()
+    args.add_argument('--exp_name', type=str, default=None, help='The name of the training experiment.')
+    args.add_argument('--eval_exp_name', type=str, default=None, help='The name of the evaluation experiment.')
+    args.add_argument('--compression', action='store_true', help='Whether to analyze compression robustness results.')
+    args.add_argument('--need_lpips', action='store_true', help='Whether to include LPIPS metric in analysis.')
+    args.add_argument('--end2end', action='store_true', help='Whether to analyze end2end evaluation results.')
+    args = args.parse_args()
+    
+    if args.exp_name is not None and args.eval_exp_name is None:
+        RES_BASE_PATH = os.path.join(BASE_PATH, "experiments")
+    elif args.eval_exp_name is not None and args.exp_name is None:
+        RES_BASE_PATH = os.path.join(BASE_PATH, "results", "eval")
+    else:
+        raise ValueError("Please provide either --exp_name or --eval_exp_name, but not both.")
+    eval_name = args.eval_exp_name if args.eval_exp_name is not None else args.exp_name
+    compression = args.compression
+    need_lpips = args.need_lpips
+    end2end = args.end2end
     ana_res(eval_name, compression, need_lpips, end2end_mode=end2end)
 
 

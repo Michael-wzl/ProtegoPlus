@@ -117,13 +117,6 @@ class MTCNN_Wrapper(object):
             'rnet': os.path.join(MTCNN_HOME, 'pretrained/rnet.npy'),
             'onet': os.path.join(MTCNN_HOME, 'pretrained/onet.npy')
         }
-        self.url_dict = {
-            'pnet': "https://drive.google.com/file/d/1uJopXpkHHzzImZ-4LVWrRHHMbUECi5Fb/view?usp=share_link",
-            'rnet': "https://drive.google.com/file/d/1uJopXpkHHzzImZ-4LVWrRHHMbUECi5Fb/view?usp=share_link",
-            'onet': "https://drive.google.com/file/d/1uJopXpkHHzzImZ-4LVWrRHHMbUECi5Fb/view?usp=share_link"
-        }
-        for key in self.path_dict:
-            download(self.path_dict[key], self.url_dict[key])
         self.model = MTCNN(weight_paths=self.path_dict, device=device)
         self.preprocessing = transforms.Compose([transforms.Lambda(lambda x: x)]) # Identity transform
         self.drange = 255
@@ -161,18 +154,24 @@ class Retinaface(object):
         self.device = device
         self.ldmk_num = 5  # Number of landmark points (5 points: left eye, right eye, nose, left mouth corner, right mouth corner)
         self.path_dict = {
-            'mobilenet0.25': os.path.join(RETINAFACE_HOME, 'pretrained/mobilenet0.25_Final.pth'),
+            'mobilenet0.25': [os.path.join(RETINAFACE_HOME, 'pretrained/mobilenet0.25_Final.pth'),
+                              os.path.join(RETINAFACE_HOME, 'pretrained/mobilenetV1X0.25_pretrain.tar')],
             'resnet50': os.path.join(RETINAFACE_HOME, 'pretrained/Resnet50_Final.pth')
         }
         self.url_dict = {
-            'mobilenet0.25': "https://drive.google.com/file/d/1AlY3yMYFGm0dTi7-lN4bq6T2McEJqrsv/view?usp=sharing", 
-            'resnet50': "https://drive.google.com/file/d/1RvJEqJL1htXEQ6tb9noMCq7v9tOgag_0/view?usp=sharing"
+            'mobilenet0.25': ["https://drive.google.com/file/d/15zP8BP-5IvWXWZoYTNdvUJUiBqZ1hxu1/view?usp=share_link", 
+                              "https://drive.google.com/file/d/1q36RaTZnpHVl4vRuNypoEMVWiiwCqhuD/view?usp=share_link"], 
+            'resnet50': "https://drive.google.com/file/d/14KX6VqF69MdSPk3Tr9PlDYbq7ArpdNUW/view?usp=share_link"
         }
-        download(self.path_dict[arch], self.url_dict[arch])
+        if isinstance(self.path_dict[arch], list):
+            for p, u in zip(self.path_dict[arch], self.url_dict[arch]):
+                download(p, u)
+        else:
+            download(self.path_dict[arch], self.url_dict[arch])
         if arch == 'mobilenet0.25':
             self.cfg = {
             'name': 'mobilenet0.25',
-            'statedict_path': os.path.join(RETINAFACE_HOME, 'pretrained/mobilenetV1X0.25_pretrain.tar'),
+            'statedict_path': self.path_dict[arch][1],
             'min_sizes': [[16, 32], [64, 128], [256, 512]],
             'steps': [8, 16, 32],
             'variance': [0.1, 0.2],
@@ -211,7 +210,10 @@ class Retinaface(object):
             'out_channel': 256
             }
         self.model = RetinaFace(cfg=self.cfg, phase='test')
-        state_dict = torch.load(self.path_dict[arch], map_location=device, weights_only=False)
+        if isinstance(self.path_dict[arch], list):
+            state_dict = torch.load(self.path_dict[arch][0], map_location=device, weights_only=False)
+        else:
+            state_dict = torch.load(self.path_dict[arch], map_location=device, weights_only=False)
         if 'state_dict' in state_dict.keys():
             state_dict = self.remove_prefix(state_dict['state_dict'], 'module.')
         else:

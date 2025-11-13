@@ -1,4 +1,5 @@
 import os
+import argparse
 
 import torch
 if torch.cuda.is_available():
@@ -8,14 +9,22 @@ import tqdm
 
 from protego import BASE_PATH
 from protego.utils import preextract_features
-from protego.FacialRecognition import FR, BASIC_POOL, SPECIAL_POOL, FINETUNE_POOL
+from protego.FacialRecognition import FR, BASIC_POOL, SPECIAL_POOL
 
 if __name__ == "__main__":
-    ######################### Configuration #########################
-    device = torch.device('cuda:0')
+    ####################################################################################################################
+    # Configuration
+    ####################################################################################################################
+    args = argparse.ArgumentParser()
+    args.add_argument('--device', type=str, help='The device to use (cpu, mps, cuda:0, etc.)')
+    args = args.parse_args()
+    ####################################################################################################################
+    # Run
+    ####################################################################################################################
+    device = torch.device(args.device)
     mode = 'original' # 'original', 'compressed', 'both'
     face_db_base_paths = [f"{BASE_PATH}/face_db/face_scrub", f"{BASE_PATH}/face_db/face_scrub/_noise_db"]
-    fr_names =  ['ir50_adaface_fsclean', 'ir50_adaface_fsprot20cham', 'ir50_adaface_fsprot20protego']
+    fr_names = BASIC_POOL + SPECIAL_POOL
     compression_methods = ['none', 'gaussian', 'median', 'jpeg', 'resize', 'quantize', 'vid_codec']
     compression_cfgs = {
         'none': {}, 
@@ -46,7 +55,6 @@ if __name__ == "__main__":
             'preset': 'faster'
         }
     }
-    #################################################################
     with torch.no_grad():
         for fr_idx, fr_name in enumerate(fr_names):
             print(f"Processing FR model {fr_idx+1}/{len(fr_names)}: {fr_name}")

@@ -4,6 +4,7 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="torch")
 warnings.filterwarnings("ignore", category=UserWarning, module="requests")
 import datetime
+import argparse
 
 import torch
 if torch.cuda.is_available():
@@ -11,6 +12,7 @@ if torch.cuda.is_available():
     torch.backends.cudnn.deterministic = False
 import torch.nn.functional as F
 import cv2
+import yaml
 
 from protego.FaceDetection import FD
 from protego.utils import load_mask, crop_face
@@ -18,22 +20,35 @@ from protego import BASE_PATH
 from protego.UVMapping import UVGenerator
 
 if __name__ == "__main__":
+    ####################################################################################################################
+    # Configuration
+    ####################################################################################################################
+    args = argparse.ArgumentParser()
+    args.add_argument('--mask_name', type=str, default='default', help='The name of the mask to apply.')
+    args.add_argument('--protectee', type=str, default='Hugh Grant', help='The name of the protectee whose video to protect.')
+    args.add_argument('--vid_name', type=str, default='hg1.mp4', help='The name of the video file to protect.')
+    args.add_argument('--device', type=str, default='cuda:0', help='The device to use for protection. (cpu, mps, cuda:0, etc.)')
+    args = args.parse_args()
+    ####################################################################################################################
+    # Run
+    ####################################################################################################################
     with torch.no_grad():
-        ####################################################################################################################
-        # Configuration
-        ####################################################################################################################
-        device = torch.device('cuda:7')
-        protectee_name = "Bradley_Cooper"
-        vid_name = "bc1_480p.mp4"
-        mask_names = ['default', 'univ_mask.npy']
-        three_d = True
-        use_bin_mask = True
-        epsilon = 16 / 255.
-        ####################################################################################################################
+        device = torch.device(args.device)
+        protectee_name = args.protectee
+        vid_name = args.vid_name
+        mask_names = [args.mask_name, 'univ_mask.npy']
+
         # Config paths
         scr_vid_path = os.path.join(BASE_PATH, 'face_db', 'vids', protectee_name, vid_name)
         dst_vid_path = os.path.join(BASE_PATH, 'results', 'vids', protectee_name, "protected_" + vid_name)
         mask_path = os.path.join(BASE_PATH, 'experiments', mask_names[0], protectee_name, mask_names[1])
+        mask_cfg_path = os.path.join(BASE_PATH, 'experiments', mask_names[0], protectee_name, 'cfgs.yaml')
+        with open(mask_cfg_path, 'r') as f:
+            mask_cfgs = yaml.safe_load(f)
+        three_d = mask_cfgs.get('three_d', True)
+        use_bin_mask = mask_cfgs.get('bin_mask', True)
+        epsilon = mask_cfgs.get('epsilon', 16 / 255.)
+        epsilon = int(float(epsilon) * 255) / 255.
         os.makedirs(os.path.dirname(dst_vid_path), exist_ok=True)
         smirk_base_path = os.path.join(BASE_PATH, 'smirk')
         smirk_weight_path = os.path.join(smirk_base_path, 'pretrained_models/SMIRK_em1.pt')
@@ -53,6 +68,7 @@ if __name__ == "__main__":
         total_frame = int(scr_vid.get(cv2.CAP_PROP_FRAME_COUNT))
         dst_vid = cv2.VideoWriter(dst_vid_path, fourcc, fps, (width, height))
         frame_cnt = 0
+        valid_frame_cnt = 0
         fps_frame_cnt = 0
         fps_time = 0.
 
@@ -90,6 +106,7 @@ if __name__ == "__main__":
             dst_vid.write(protected_frame)
             if frame_cnt % 50 == 0:
                 print(f"Processed {frame_cnt}/{total_frame} frames.")
+            valid_frame_cnt += 1
         scr_vid.release()
         dst_vid.release()
-        print(f"Finished protecting video. Total frames: {frame_cnt}, FPS (excluding first 50 frames): {fps_frame_cnt/fps_time:.4f}.")
+        print(f"Finished protecting video. Valid frames: {valid_frame_cnt} / {total_frame}, FPS (excluding first 50 frames for warm-up): {fps_frame_cnt/fps_time:.4f}.")
